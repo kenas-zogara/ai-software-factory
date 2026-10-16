@@ -395,7 +395,7 @@ def render(cards, errors):
             if c.get("wt"):
                 acts.append(act("Remove", "remove", f"Remove workspace {c.get('workspace') or c['wt']}? It's refused if it holds uncommitted or unpushed work.",
                                 "quiet", path=c["wt"]))
-            elif lane != "spec":
+            elif lane != "spec" and c["col"] != "merged":  # merged cards age out after 7 days
                 acts.append(act("Hide", "hide", None, "quiet", key=c["url"], head=c.get("head", ""), req=c.get("req", "")))
         if orca_url:
             if c["pr"]:
