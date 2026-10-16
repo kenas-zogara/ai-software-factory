@@ -1,0 +1,349 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Kenas Software Factory</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: one reading column; each diagram scrolls in its own wrapper. Single light skin by choice (diagram-design default). */
+:root {
+  --paper: #f5f5f5; --paper-2: #ececec; --card: #ffffff; --ink: #2d3142; --muted: #4f5d75; --soft: #5a6580;
+  --rule: rgba(45,49,66,0.12); --accent: #bf4520; --accent-tint: rgba(191,69,32,0.08);
+  --sans: 'Geist', system-ui, sans-serif; --serif: 'Instrument Serif', Georgia, serif; --mono: 'Geist Mono', ui-monospace, monospace;
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 15px/1.6 var(--sans); }
+main { max-width: 1080px; margin: 0 auto; padding-block: 48px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 48px; }
+.eyebrow { font: 500 0.66rem var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+h1 { font: 400 clamp(1.8rem, 2.6vw + 1rem, 2.6rem)/1.1 var(--serif); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+h2 { font: 400 1.6rem/1.2 var(--serif); letter-spacing: -0.01em; margin: 0 0 6px; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--muted); margin-top: 10px; }
+.note { color: var(--muted); font-size: 14px; margin-top: 12px; }
+.scroll { overflow-x: auto; margin-top: 16px; }
+.scroll svg { display: block; width: 100%; min-width: 1000px; }
+.tbl { overflow-x: auto; margin-top: 12px; background: var(--card); border: 1px solid var(--rule); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+tr:last-child td { border-bottom: 0; }
+th { font: 500 0.66rem var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+code { font: 13px var(--mono); }
+.open { color: var(--accent); font: 500 12px var(--mono); }
+ul { margin: 12px 0 0; padding-left: 20px; } li { margin: 6px 0; max-width: 68ch; }
+</style>
+
+<main>
+<header>
+  <p class="eyebrow">Design draft · after interview round 3 · 2026-10-16</p>
+  <h1>Kenas Software Factory</h1>
+  <p class="lede">One ADO item goes through the spec phase once. Each repo Task then goes through the build phase in its own Orca workspace. You stop the line twice: at the spec gate and at human review.</p>
+</header>
+
+<section>
+  <p class="eyebrow">Swimlane · who does what</p>
+  <h2>The line, end to end</h2>
+  <div class="scroll">
+    <svg viewBox="0 0 1000 516" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="factory-flow-title factory-flow-desc">
+      <title id="factory-flow-title">The factory line, end to end</title>
+      <desc id="factory-flow-desc">Swimlane showing a work item moving from your grill command through the spec session, your spec gate, the foreman's claim, the build worker, AI review, the ready-gate hook, and your human review.</desc>
+      <defs>
+        <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)"/></pattern>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+      </defs>
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+      <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55"/>
+
+      <line x1="40" y1="40" x2="980" y2="40" stroke="rgba(45,49,66,0.22)"/>
+      <line x1="40" y1="120" x2="980" y2="120" stroke="rgba(45,49,66,0.10)"/>
+      <line x1="40" y1="200" x2="980" y2="200" stroke="rgba(45,49,66,0.10)"/>
+      <line x1="40" y1="280" x2="980" y2="280" stroke="rgba(45,49,66,0.10)"/>
+      <line x1="40" y1="360" x2="980" y2="360" stroke="rgba(45,49,66,0.10)"/>
+      <line x1="40" y1="440" x2="980" y2="440" stroke="rgba(45,49,66,0.22)"/>
+      <line x1="160" y1="40" x2="160" y2="440" stroke="rgba(45,49,66,0.22)"/>
+
+      <g fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" letter-spacing="0.18em">
+        <text x="56" y="84">YOU</text>
+        <text x="56" y="164">FOREMAN</text>
+        <text x="56" y="244">SPEC SESSION</text>
+        <text x="56" y="324">BUILD WORKER</text>
+        <text x="56" y="404">HOOKS</text>
+      </g>
+
+      <g fill="none" stroke="#4f5d75" stroke-width="1.2">
+        <line x1="260" y1="104" x2="260" y2="136" marker-end="url(#arrow)"/>
+        <line x1="260" y1="184" x2="260" y2="216" marker-end="url(#arrow)"/>
+        <path d="M 336,240 H 364 Q 372,240 372,232 V 88 Q 372,80 380,80 H 392" marker-end="url(#arrow)"/>
+        <line x1="468" y1="104" x2="468" y2="136" marker-end="url(#arrow)"/>
+        <line x1="468" y1="184" x2="468" y2="296" marker-end="url(#arrow)"/>
+        <line x1="544" y1="320" x2="600" y2="320" marker-end="url(#arrow)"/>
+        <line x1="676" y1="344" x2="676" y2="376" marker-end="url(#arrow)"/>
+        <path d="M 752,400 H 876 Q 884,400 884,392 V 104" marker-end="url(#arrow)"/>
+        <path d="M 600,400 H 476 Q 468,400 468,392 V 344" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      </g>
+
+      <g font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em" fill="#4f5d75" text-anchor="middle">
+        <rect x="476" y="114" width="56" height="12" rx="2" fill="#f5f5f5"/><text x="504" y="123">APPROVED</text>
+        <rect x="476" y="234" width="80" height="12" rx="2" fill="#f5f5f5"/><text x="516" y="243">TASK PER REPO</text>
+        <rect x="832" y="234" width="44" height="12" rx="2" fill="#f5f5f5"/><text x="854" y="243">READY</text>
+        <rect x="508" y="408" width="56" height="12" rx="2" fill="#f5f5f5"/><text x="536" y="417">BLOCKED</text>
+      </g>
+
+      <g font-family="'Geist', sans-serif" text-anchor="middle">
+        <rect x="184" y="56" width="152" height="48" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="260" y="78" fill="#2d3142" font-size="11" font-weight="600">Start the spec</text>
+        <text x="260" y="92" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">grill 3515</text>
+
+        <rect x="184" y="136" width="152" height="48" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="260" y="158" fill="#2d3142" font-size="11" font-weight="600">Open spec workspace</text>
+        <text x="260" y="172" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">vault worktree spec-3515</text>
+
+        <rect x="184" y="216" width="152" height="48" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="260" y="238" fill="#2d3142" font-size="11" font-weight="600">Grill the spec</text>
+        <text x="260" y="252" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">AC · BE · Figma → PBI</text>
+
+        <rect x="392" y="56" width="152" height="48" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520"/>
+        <text x="468" y="78" fill="#2d3142" font-size="11" font-weight="600">Spec gate</text>
+        <text x="468" y="92" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">approve 3515</text>
+
+        <rect x="392" y="136" width="152" height="48" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="468" y="158" fill="#2d3142" font-size="11" font-weight="600">Claim and open</text>
+        <text x="468" y="172" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">AB# lock · draft PR</text>
+
+        <rect x="392" y="296" width="152" height="48" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="468" y="318" fill="#2d3142" font-size="11" font-weight="600">Build the Task</text>
+        <text x="468" y="332" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">prove · plan · test · code</text>
+
+        <rect x="600" y="296" width="152" height="48" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="676" y="318" fill="#2d3142" font-size="11" font-weight="600">AI review</text>
+        <text x="676" y="332" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">fresh agent · eval comment</text>
+
+        <rect x="600" y="376" width="152" height="48" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520"/>
+        <text x="676" y="398" fill="#2d3142" font-size="11" font-weight="600">Ready gate</text>
+        <text x="676" y="412" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">gh pr ready · 4 checks</text>
+
+        <rect x="808" y="56" width="152" height="48" rx="6" fill="#ffffff" stroke="#2d3142"/>
+        <text x="884" y="78" fill="#2d3142" font-size="11" font-weight="600">Human review</text>
+        <text x="884" y="92" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">merge → ADO done</text>
+      </g>
+
+      <line x1="40" y1="464" x2="960" y2="464" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <g font-size="8.5" font-family="'Geist', sans-serif" fill="#4f5d75">
+        <text x="40" y="484" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="112" y="476" width="14" height="10" rx="2" fill="#ffffff" stroke="#2d3142"/><text x="132" y="484">Step</text>
+        <rect x="184" y="476" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520"/><text x="204" y="484">Gate: the line stops</text>
+        <line x1="328" y1="481" x2="356" y2="481" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><text x="364" y="484">Flow</text>
+        <line x1="412" y1="481" x2="440" y2="481" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow)"/><text x="448" y="484">Rework loop</text>
+      </g>
+    </svg>
+  </div>
+  <p class="note">The spec session writes the AC, decisions from calls, the BE dependency and the Figma frames back to the PBI, and its decision log to Obsidian. After the spec gate, the foreman creates one Task per repo with the repo's own skill. Each Task gets one workspace, one draft PR and one worker.</p>
+</section>
+
+<section>
+  <p class="eyebrow">State machine · one PR</p>
+  <h2>What the board shows, and when it moves</h2>
+  <div class="scroll">
+    <svg viewBox="0 0 1000 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="factory-states-title factory-states-desc">
+      <title id="factory-states-title">Board states of one PR</title>
+      <desc id="factory-states-desc">State machine of the Orca board columns, each derived from ADO and PR state: spec, building, AI review, human review and merged, with a side wait state for a backend dependency.</desc>
+      <defs>
+        <pattern id="dots2" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)"/></pattern>
+        <marker id="arrow2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow2-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bf4520"/></marker>
+      </defs>
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+      <rect width="100%" height="100%" fill="url(#dots2)" opacity="0.55"/>
+
+      <g fill="none" stroke="#4f5d75" stroke-width="1.2">
+        <line x1="30" y1="144" x2="96" y2="144" marker-end="url(#arrow2)"/>
+        <line x1="216" y1="144" x2="288" y2="144" marker-end="url(#arrow2)"/>
+        <line x1="408" y1="144" x2="480" y2="144" marker-end="url(#arrow2)"/>
+        <line x1="600" y1="144" x2="672" y2="144" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow2-accent)"/>
+        <line x1="792" y1="144" x2="864" y2="144" marker-end="url(#arrow2)"/>
+        <path d="M 540,168 V 192 Q 540,200 532,200 H 386 Q 378,200 378,192 V 168" stroke-dasharray="5,4" marker-end="url(#arrow2)"/>
+        <line x1="318" y1="168" x2="318" y2="248" stroke-dasharray="5,4" marker-end="url(#arrow2)"/>
+        <line x1="348" y1="248" x2="348" y2="168" marker-end="url(#arrow2)"/>
+      </g>
+      <circle cx="24" cy="144" r="6" fill="#2d3142"/>
+
+      <g font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em" fill="#4f5d75" text-anchor="middle">
+        <rect x="40" y="126" width="40" height="12" rx="2" fill="#f5f5f5"/><text x="60" y="135">GRILL</text>
+        <rect x="224" y="126" width="56" height="12" rx="2" fill="#f5f5f5"/><text x="252" y="135">APPROVE</text>
+        <rect x="412" y="126" width="64" height="12" rx="2" fill="#f5f5f5"/><text x="444" y="135">EVAL POSTED</text>
+        <rect x="604" y="126" width="64" height="12" rx="2" fill="#f5f5f5"/><text x="636" y="135" fill="#bf4520">GH PR READY</text>
+        <rect x="804" y="126" width="48" height="12" rx="2" fill="#f5f5f5"/><text x="828" y="135">MERGE</text>
+        <rect x="424" y="208" width="68" height="12" rx="2" fill="#f5f5f5"/><text x="458" y="217">NEW COMMIT</text>
+        <rect x="254" y="204" width="56" height="12" rx="2" fill="#f5f5f5"/><text x="282" y="213">NEEDS-BE</text>
+        <rect x="356" y="222" width="60" height="12" rx="2" fill="#f5f5f5"/><text x="386" y="231">BE ON DEV</text>
+      </g>
+
+      <g font-family="'Geist', sans-serif" text-anchor="middle">
+        <rect x="96" y="120" width="120" height="48" rx="8" fill="#ffffff" stroke="#2d3142"/>
+        <text x="156" y="142" fill="#2d3142" font-size="11" font-weight="600">Spec</text>
+        <text x="156" y="156" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">ADO item</text>
+
+        <rect x="288" y="120" width="120" height="48" rx="8" fill="#ffffff" stroke="#2d3142"/>
+        <text x="348" y="142" fill="#2d3142" font-size="11" font-weight="600">Building</text>
+        <text x="348" y="156" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">draft PR</text>
+
+        <rect x="480" y="120" width="120" height="48" rx="8" fill="#ffffff" stroke="#2d3142"/>
+        <text x="540" y="142" fill="#2d3142" font-size="11" font-weight="600">AI review</text>
+        <text x="540" y="156" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">eval comment</text>
+
+        <rect x="672" y="120" width="120" height="48" rx="8" fill="rgba(191,69,32,0.08)" stroke="#bf4520"/>
+        <text x="732" y="142" fill="#2d3142" font-size="11" font-weight="600">Human review</text>
+        <text x="732" y="156" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">ready for review</text>
+
+        <rect x="864" y="120" width="104" height="48" rx="8" fill="#ffffff" stroke="#2d3142"/>
+        <text x="916" y="142" fill="#2d3142" font-size="11" font-weight="600">Merged</text>
+        <text x="916" y="156" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">ADO → Done</text>
+
+        <rect x="288" y="248" width="120" height="48" rx="8" fill="#ffffff" stroke="#2d3142" stroke-dasharray="4,3"/>
+        <text x="348" y="270" fill="#2d3142" font-size="11" font-weight="600">Waiting on BE</text>
+        <text x="348" y="284" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">label needs-be</text>
+      </g>
+
+      <line x1="40" y1="316" x2="960" y2="316" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <g font-size="8.5" font-family="'Geist', sans-serif" fill="#4f5d75">
+        <text x="40" y="336" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="112" y="328" width="14" height="10" rx="2" fill="#ffffff" stroke="#2d3142"/><text x="132" y="336">Board column</text>
+        <rect x="220" y="328" width="14" height="10" rx="2" fill="#ffffff" stroke="#2d3142" stroke-dasharray="3,2"/><text x="240" y="336">Wait, flagged by a PR label</text>
+        <rect x="384" y="328" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520"/><text x="404" y="336">Needs you</text>
+        <line x1="476" y1="333" x2="504" y2="333" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow2-accent)"/><text x="512" y="336">Hook-gated</text>
+        <line x1="584" y1="333" x2="612" y2="333" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow2)"/><text x="620" y="336">Moves back</text>
+      </g>
+    </svg>
+  </div>
+  <p class="note">The board is <code>~/.claude/factory/board.html</code>, which <code>sync.py</code> renders every 5 minutes, not Orca's. Spec work has four columns there: <b>to grill</b>, <b>grilling</b>, <b>awaiting approval</b> (your approval queue) and <b>ready to build</b>. The board started view only. Since round 7 it carries actions (see <b>Board actions</b>), which are links the local <code>factory-orca://</code> handler runs. An open PR, draft or not, is in human review. ADO Testing means merged to dev. AI review is set live by the session running the review. Nothing stores the column. Sync derives it from the ADO state and the PR (draft, eval comment, ready, merged) and writes it to Orca. A new commit after the eval moves the PR back to building, so the ready gate always sees a fresh review.</p>
+</section>
+
+<section>
+  <p class="eyebrow">Ownership</p>
+  <h2>Where each fact lives</h2>
+  <div class="tbl"><table>
+    <tr><th>Fact</th><th>Home</th><th>Everyone else</th></tr>
+    <tr><td>Spec: problem, why, what, AC, Figma, call decisions</td><td>ADO PBI or Bug</td><td>Link to it, never copy</td></tr>
+    <tr><td>Implementation decisions for one repo</td><td>ADO Task</td><td>PR body links it</td></tr>
+    <tr><td>Build stage</td><td>Derived from the PR</td><td>Factory board shows it</td></tr>
+    <tr><td>Flags: <code>needs-be</code>, <code>blocked</code>, repo</td><td>GitHub labels on the PR</td><td>Board and <code>status</code> read them</td></tr>
+    <tr><td>Decision log, grill transcript, personal "what's next"</td><td>Obsidian (flexii_documents)</td><td>Frontmatter <code>ado: 3515</code> links back</td></tr>
+    <tr><td>Which workspace holds which PR</td><td>Orca worktree metadata</td><td></td></tr>
+  </table></div>
+</section>
+
+<section>
+  <p class="eyebrow">Enforcement</p>
+  <h2>Hooks</h2>
+  <div class="tbl"><table>
+    <tr><th>Hook</th><th>Does</th></tr>
+    <tr><td>SessionStart</td><td>Loads kenas-mode (exists today)</td></tr>
+    <tr><td>SubagentStart</td><td>Injects kenas-mode into every subagent, the way ponytail already does</td></tr>
+    <tr><td>PreToolUse <code>Agent</code></td><td>Blocks a subagent that is not a <code>kenas</code> role</td></tr>
+    <tr><td>PreToolUse <code>gh pr create</code></td><td>Blocks unless the ADO item is Approved and no open PR claims this AB# in this repo</td></tr>
+    <tr><td>PreToolUse <code>gh pr ready</code></td><td>Ready gate: test-first commit or "no test: reason", eval comment newer than the last commit, UI evidence, docs verdict</td></tr>
+  </table></div>
+  <p class="note">Events (teammate PR reviews, CI fixes, code freeze, releases) stay outside the line and show in <code>status</code> output.</p>
+</section>
+
+<section>
+  <p class="eyebrow">Mechanics · rounds 5 and 6</p>
+  <h2>How it runs</h2>
+  <div class="tbl"><table>
+    <tr><th>Topic</th><th>Decision</th></tr>
+    <tr><td>Spec note</td><td><code>flexii_documents/specs/&lt;id&gt;-&lt;slug&gt;.md</code>. Frontmatter <code>type, ado, repos, created, topics</code>, no status. Body: Decisions, Open questions, Grill log</td></tr>
+    <tr><td>Vault branch</td><td>Spec session works on <code>spec/&lt;id&gt;</code>; <code>approve</code> fast-forwards it into main and removes the worktree</td></tr>
+    <tr><td>Spec gate check</td><td>Problem, why, what · behavioural AC, no code · BE dependency or "none" · Figma frames or "no Figma" · no open questions. For a Bug: repro and expected behaviour</td></tr>
+    <tr><td>No ADO item</td><td>The Obsidian note is the spec, and <code>approve</code> sets <code>approved: &lt;date&gt;</code>. When an ADO item is created, the note becomes its decision log</td></tr>
+    <tr><td>Stacks</td><td>One workspace per PR. Children open with <code>--parent-worktree</code> once the parent reaches AI review</td></tr>
+    <tr><td>Worker permissions</td><td>Bypass, plus a deny list: no force-push to shared branches, ADO writes only for state and links, no Slack posts</td></tr>
+    <tr><td>Parallel builds</td><td>No cap. Human review comes after AI review, so the queue is visible on the board</td></tr>
+    <tr><td>Human review</td><td>Always you, on your own PRs: the final merge-or-not check after AI review</td></tr>
+    <tr><td><code>sync</code></td><td>A plain script with no LLM, every 5 minutes. Reads <code>gh</code>, the ADO REST API and <code>orca worktree list</code>. Writes board columns and <code>needs-be</code>, wakes a workspace with <code>orca terminal send</code> when its BE dependency clears, and flags stalled workspaces</td></tr>
+    <tr><td>Learning</td><td>On merge: ready-gate blocks, eval findings and your review comments are recorded in the spec note. Monthly <code>reflect</code> proposes skill and playbook edits</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <p class="eyebrow">Round 7 · 2026-10-16</p>
+  <h2>Board actions</h2>
+  <p class="lede">The board stops being view only. Each button is a <code>factory-orca://&lt;action&gt;?…</code> link. <code>Factory Orca Link.app</code> runs it through <code>open-orca.sh</code>, then starts a sync so the card moves within seconds. No server is involved. A button that changes ADO state or deletes a workspace asks with <code>confirm()</code> first.</p>
+
+  <div class="tbl"><table>
+    <tr><th>Card</th><th>Buttons</th><th>What a click does</th></tr>
+    <tr><td>Awaiting approval</td><td>Approve</td><td><code>factory.py approve &lt;id&gt;</code>, after a confirm</td></tr>
+    <tr><td>Approved</td><td>Start</td><td><code>factory.py start &lt;id&gt;</code> after a confirm, then focuses the new build workspace</td></tr>
+    <tr><td>My PR (Building, Human review)</td><td>AI review · e2e review</td><td>A fresh agent terminal in the PR's workspace, or a new workspace on the PR head if none exists. It posts on its own</td></tr>
+    <tr><td>Reviews lane</td><td>AI review · e2e review</td><td>A new workspace on the PR head. Findings wait in the session for your OK</td></tr>
+    <tr><td>Any card with a workspace</td><td>Open · Remove</td><td>Remove runs <code>orca worktree rm</code> after a confirm. It's refused while the workspace has uncommitted or unpushed work</td></tr>
+    <tr><td>Card with no workspace (Build, Reviews)</td><td>Hide</td><td>Adds the card to <code>hidden.json</code>. It comes back on a new commit or a new review request</td></tr>
+  </table></div>
+  <p class="note">A button whose review is already running opens that session instead of starting a second one. A workspace you delete by hand in Orca leaves the board at the next sync.</p>
+
+  <h2 style="margin-top:28px">Reviews lane · other people's PRs</h2>
+  <p>It lists PRs where your review is requested, plus any PR you've opened a review workspace for. The Build lane is unchanged.</p>
+  <div class="tbl"><table>
+    <tr><th>Column</th><th>Derived from</th></tr>
+    <tr><td>To review</td><td>Review requested, or a workspace exists, and nothing is running</td></tr>
+    <tr><td>AI reviewing</td><td>The live marker of an AI or e2e review session</td></tr>
+    <tr><td>Findings ready</td><td>The session finished, and its findings wait for your OK in the session. Sends a macOS notification</td></tr>
+    <tr><td>Reviewed</td><td>Your submitted GitHub review is newer than the PR's last commit. A new commit sends the card back to To review</td></tr>
+  </table></div>
+  <p class="note">Merged or closed PRs leave the lane. My PRs keep AI review as a live-only state and gain an <b>eval ✓</b> flag while an eval comment is newer than the last commit.</p>
+
+  <h2 style="margin-top:28px">e2e review</h2>
+  <p>An AI review, plus <code>e2e-audit</code> for the specs this diff affects, those Playwright specs, <code>qa-test</code> on the changed behaviour, and <code>ui-ux-test</code> when UI files changed. It runs against the workspace's own dev server on its port band, pointed at the dev API, and covers every app the diff touches. Missing coverage is reported. New specs are not written, because they're the PR author's job.</p>
+
+  <h2 style="margin-top:28px">Hidden cards</h2>
+  <p>Each of the Build and Reviews lanes gets a <b>Show hidden (n)</b> toggle in its header. It's off by default, and the page remembers it per lane. A hidden card that is shown keeps its column but reads as set aside:</p>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px">
+    <div style="flex:1 1 240px;max-width:300px;background:var(--card);border:1px solid var(--rule);border-radius:8px;padding:12px 14px">
+      <p class="eyebrow" style="margin:0 0 4px">Normal · Reviews / To review</p>
+      <div style="font-weight:600;font-size:14px">feat(flex-admin): bulk worker export</div>
+      <div style="font:12px var(--mono);color:var(--muted);margin-top:4px">flex-store #4951 · 2h</div>
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+        <span style="font:500 11px var(--mono);border:1px solid var(--ink);border-radius:4px;padding:2px 8px">AI review</span>
+        <span style="font:500 11px var(--mono);border:1px solid var(--ink);border-radius:4px;padding:2px 8px">e2e review</span>
+        <span style="font:500 11px var(--mono);color:var(--muted);border:1px solid var(--rule);border-radius:4px;padding:2px 8px;margin-left:auto">Hide</span>
+      </div>
+    </div>
+    <div style="flex:1 1 240px;max-width:300px;background:var(--paper-2);border:1px dashed rgba(45,49,66,0.35);border-radius:8px;padding:12px 14px;opacity:0.72">
+      <p class="eyebrow" style="margin:0 0 4px">Hidden · shown by the toggle</p>
+      <div style="font-weight:600;font-size:14px;color:var(--muted)">feat(flex-admin): bulk worker export</div>
+      <div style="font:12px var(--mono);color:var(--muted);margin-top:4px">flex-store #4951 · <span style="border:1px solid var(--rule);border-radius:3px;padding:0 5px">hidden 3d</span></div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <span style="font:500 11px var(--mono);border:1px solid var(--muted);border-radius:4px;padding:2px 8px">Unhide</span>
+      </div>
+    </div>
+  </div>
+  <p class="note">A hidden card has a dashed border, a muted fill and title, and is dimmed to 72%. It carries a <code>hidden &lt;age&gt;</code> chip and offers only <b>Unhide</b>. Lanes count only visible cards. Hidden state lives in <code>~/.claude/factory/hidden.json</code>, keyed by PR URL, with the head commit and review-request time it was hidden at. Sync shows the card again once either one changes.</p>
+</section>
+
+<section>
+  <p class="eyebrow">Build order</p>
+  <h2>Each step works by itself</h2>
+  <ul>
+    <li><b>1.</b> Hooks: SubagentStart injects kenas-mode, PreToolUse guards <code>Agent</code> to <code>kenas</code> roles</li>
+    <li><b>2.</b> <code>factory</code> skill: <code>grill</code> and <code>approve</code>, vault worktree, spec-gate check</li>
+    <li><b>3.</b> <code>start</code>: Task, AB# claim lock, workspace, draft PR, brief, and the <code>gh pr create</code> guard. Then a real ticket</li>
+    <li><b>4.</b> Ready-gate hook on <code>gh pr ready</code></li>
+    <li><b>5.</b> <code>sync</code> script and its schedule</li>
+    <li><b>6.</b> Merge metrics</li>
+    <li><b>7.</b> Board actions: link handler, Approve and Start</li>
+    <li><b>8.</b> Reviews lane, AI review button, eval ✓ flag</li>
+    <li><b>9.</b> e2e review button</li>
+    <li><b>10.</b> Remove, Hide, the Show-hidden toggle and the hidden-card style</li>
+    <li><b>11.</b> Findings-ready notification</li>
+  </ul>
+</section>
+
+<section>
+  <p class="eyebrow">Settled in round 4</p>
+  <h2>Orca and the foreman</h2>
+  <ul>
+    <li>Orca is used as it is, through its CLI. No fork. A concrete gap goes upstream as a PR.</li>
+    <li>The foreman is a <code>factory</code> command you run (<code>grill</code>, <code>approve</code>, <code>start</code>, <code>sync</code>), plus a scheduled <code>sync</code> that catches what happens without you.</li>
+    <li>The spec session runs in a per-PBI worktree of the flexii_documents vault, so it shows in the spec column and writes the decision log where it runs.</li>
+  </ul>
+</section>
+</main>
+
+</body></html>

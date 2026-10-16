@@ -1,0 +1,6 @@
+{
+  "name": "ai-software-factory",
+  "version": "0.1.0",
+  "description": "Spec on the work item, build on the PR: grill and approve a spec, start one build workspace per repo, gate PRs, and watch it all on a local board.",
+  "author": { "name": "Kenas Zogara" }
+}

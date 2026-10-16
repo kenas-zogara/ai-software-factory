@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/Applications/Orca.app/Contents/Resources/bin:/usr/bin:/bin</string>
+		<key>USER</key>
+		<string>flexi</string>
+	</dict>
+	<key>Label</key>
+	<string>com.kenas.factory-sync</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/python3</string>
+		<string>/Users/flexi/.claude/skills/factory/sync.py</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/Users/flexi/.claude/factory/sync.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/flexi/.claude/factory/sync.log</string>
+	<key>StartInterval</key>
+	<integer>120</integer>
+</dict>
+</plist>
