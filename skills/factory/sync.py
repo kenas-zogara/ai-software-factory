@@ -35,7 +35,6 @@ ORCA_COLUMNS = {"building", "ai-review", "ai-reviewing", "findings-ready"}
 NEEDS_YOU = {"awaiting-approval", "human-review", "findings-ready"}
 FINDINGS = os.path.join(OUT, "findings")
 HIDDEN = os.path.join(OUT, "hidden.json")
-NOTIFIED = os.path.join(OUT, "notified.json")
 EVAL_MARK = "<!-- factory:eval -->"
 # ADO state -> column, for an item no PR or workspace speaks for.
 ADO_COLUMN = {"Approved": "ready", "Committed": "ready", "In Progress": "building",
@@ -288,21 +287,6 @@ def apply_hidden(cards):
     if keep != hidden:
         json.dump(keep, open(HIDDEN, "w"), indent=1)
 
-
-def notify_findings(cards):
-    """One macOS notification per findings file that becomes ready."""
-    try:
-        seen = json.load(open(NOTIFIED))
-    except (OSError, ValueError):
-        seen = {}
-    for c in cards:
-        if c["col"] == "findings-ready" and c.get("findings"):
-            stamp = str(os.path.getmtime(c["findings"]))
-            if seen.get(c["url"]) != stamp:
-                msg = f"Findings ready on #{c['pr']} {c['title'][:60]}"
-                subprocess.run(["osascript", "-e", f"display notification {json.dumps(msg)} with title \"Factory\""])
-                seen[c["url"]] = stamp
-    json.dump(seen, open(NOTIFIED, "w"))
 
 
 # file:// blocks fetch, so the page re-injects board.js (written by each sync) and
@@ -617,7 +601,7 @@ def main():
     cards = build_cards(items, prs, merged, orca, live_markers(), reviews)
     os.makedirs(FINDINGS, exist_ok=True)
     for name, fn, args in (("BE watch", be_watch, (cards, items)), ("Merge metrics", record_merges, (merged, items)),
-                           ("Hidden", apply_hidden, (cards,)), ("Notify", notify_findings, (cards,))):
+                           ("Hidden", apply_hidden, (cards,))):
         try:
             fn(*args)
         except Exception as e:

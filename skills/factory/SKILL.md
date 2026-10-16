@@ -63,7 +63,7 @@ Move the item into the sprint first if asked (ADO MCP, `System.IterationPath`). 
 
 ## Board actions
 
-The buttons on the board are `factory-orca://<action>?…` links. `Factory Orca Link.app` passes them to `open-orca.sh`, which runs `actions.py`. Results and refusals arrive as macOS notifications, each action is logged to `~/.claude/factory/actions.log`, and every action ends with a sync.
+The buttons on the board are `factory-orca://<action>?…` links. `Factory Orca Link.app` passes them to `open-orca.sh`, which runs `actions.py`. Each action, with its result or refusal, is logged to `~/.claude/factory/actions.log`. Every action ends with a sync.
 
 | Button | Card | Does |
 | --- | --- | --- |
@@ -72,7 +72,7 @@ The buttons on the board are `factory-orca://<action>?…` links. `Factory Orca 
 | Remove | Any card with a workspace | `orca worktree rm`, after a confirm. Refused while there are uncommitted or unpushed commits |
 | Hide / Unhide | Build and Reviews cards with no workspace | `hidden.json`. The card returns on a new head commit or a new review request |
 
-The Reviews lane (To review, AI reviewing, Findings ready, Reviewed) is worked out from GitHub, the live markers and the findings files. A findings file newer than the PR's last commit sends one notification.
+The Reviews lane (To review, AI reviewing, Findings ready, Reviewed) is worked out from GitHub, the live markers and the findings files.
 
 ## Gates: `~/.claude/hooks/factory-gate.py`
 

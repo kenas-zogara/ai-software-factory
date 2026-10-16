@@ -284,7 +284,7 @@ ul { margin: 12px 0 0; padding-left: 20px; } li { margin: 6px 0; max-width: 68ch
     <tr><th>Column</th><th>Derived from</th></tr>
     <tr><td>To review</td><td>Review requested, or a workspace exists, and nothing is running</td></tr>
     <tr><td>AI reviewing</td><td>The live marker of an AI or e2e review session</td></tr>
-    <tr><td>Findings ready</td><td>The session finished, and its findings wait for your OK in the session. Sends a macOS notification</td></tr>
+    <tr><td>Findings ready</td><td>The session finished, and its findings wait for your OK in the session</td></tr>
     <tr><td>Reviewed</td><td>Your submitted GitHub review is newer than the PR's last commit. A new commit sends the card back to To review</td></tr>
   </table></div>
   <p class="note">Merged or closed PRs leave the lane. My PRs keep AI review as a live-only state and gain an <b>eval ✓</b> flag while an eval comment is newer than the last commit.</p>
@@ -331,7 +331,7 @@ ul { margin: 12px 0 0; padding-left: 20px; } li { margin: 6px 0; max-width: 68ch
     <li><b>8.</b> Reviews lane, AI review button, eval ✓ flag</li>
     <li><b>9.</b> e2e review button</li>
     <li><b>10.</b> Remove, Hide, the Show-hidden toggle and the hidden-card style</li>
-    <li><b>11.</b> Findings-ready notification</li>
+    <li><b>11.</b> <s>Findings-ready notification</s>: dropped for now. Action results go to <code>actions.log</code></li>
   </ul>
 </section>
 

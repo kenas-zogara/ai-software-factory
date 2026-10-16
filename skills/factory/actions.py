@@ -9,7 +9,7 @@
   hide?key=K&head=H&req=R  set a card aside until its head commit or review request changes
   unhide?key=K
 
-Runs detached with no terminal, so results and refusals arrive as macOS notifications.
+Runs detached with no terminal, so results and refusals go to ~/.claude/factory/actions.log.
 Every action ends with a sync, so the card moves at once."""
 import json, os, re, subprocess, sys, time, urllib.parse
 
@@ -20,10 +20,6 @@ from sync import FINDINGS, HIDDEN, LIVE, OUT, gh_json, sh  # noqa: E402
 HERE = os.path.dirname(os.path.realpath(__file__))
 REPOS = os.path.expanduser("~/Documents/flexii")
 LOG = os.path.join(OUT, "actions.log")
-
-
-def notify(msg):
-    subprocess.run(["osascript", "-e", f"display notification {json.dumps(msg)} with title \"Factory\""])
 
 
 def log(msg):
@@ -46,7 +42,7 @@ def focus(path):
 def factory(cmd, i):
     r = subprocess.run(["/usr/bin/python3", os.path.join(HERE, "factory.py"), cmd, i], capture_output=True, text=True, timeout=600)
     out = (r.stdout.strip() or r.stderr.strip()).splitlines()
-    notify(out[-1] if out else f"{cmd} {i} finished")
+    log(out[-1] if out else f"{cmd} {i} finished")
     return r.returncode == 0
 
 
@@ -81,13 +77,13 @@ def review(url, kind):
                 return focus(wt["path"])  # a review is already running here
         sh("orca", "agent", "launch", "--agent", "claude", "--worktree", f"path:{wt['path']}", "--focus",
            "--prompt", review_prompt(url, pr, mine, kind, findings_path(owner, repo, n)))
-        return notify(f"{kind} review started on #{n} in {wt.get('displayName') or wt['path']}")
+        return log(f"{kind} review started on #{n} in {wt.get('displayName') or wt['path']}")
     local = os.path.join(REPOS, repo)
     sh("git", "-C", local, "fetch", "-q", "origin", f"+pull/{n}/head:refs/remotes/origin/pr/{n}")
     sh("orca", "worktree", "create", "--repo", f"path:{local}", "--name", name, "--no-parent",
        "--base-branch", f"origin/pr/{n}", "--setup", "run", "--activate", "--comment", f"review: {url}",
        "--agent", "claude", "--prompt", review_prompt(url, pr, mine, kind, findings_path(owner, repo, n)), "--json")
-    notify(f"{kind} review started on #{n} in a new workspace")
+    log(f"{kind} review started on #{n} in a new workspace")
 
 
 def remove(path):
@@ -96,9 +92,9 @@ def remove(path):
     unpushed = git("log", "--oneline", "HEAD", "--not", "--remotes")
     if dirty or unpushed:
         why = "uncommitted changes" if dirty else f"{len(unpushed.splitlines())} unpushed commit(s)"
-        return notify(f"Not removed: {os.path.basename(path)} has {why}.")
+        return log(f"Not removed: {os.path.basename(path)} has {why}.")
     sh("orca", "worktree", "rm", "--worktree", f"path:{path}")
-    notify(f"Removed {os.path.basename(path)}")
+    log(f"Removed {os.path.basename(path)}")
 
 
 def set_hidden(key, entry):
@@ -132,10 +128,10 @@ def main(url):
         elif action == "unhide":
             set_hidden(q["key"], None)
         else:
-            notify(f"Unknown board action: {action}")
+            log(f"Unknown board action: {action}")
     except Exception as e:
         log(f"  failed: {e}")
-        notify(f"{action} failed: {str(e)[:120]}")
+        log(f"{action} failed: {str(e)[:120]}")
     if action != "open":
         subprocess.run(["/usr/bin/python3", os.path.join(HERE, "sync.py")], capture_output=True, timeout=300)
 
