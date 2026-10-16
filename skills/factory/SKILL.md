@@ -61,6 +61,19 @@ If the fast-forward fails, the vault's `main` has moved. Rebase `spec-<id>` onto
 
 Move the item into the sprint first if asked (ADO MCP, `System.IterationPath`). Then run `factory.py start <id>` and relay its output. It refuses an item that isn't Approved or Committed, or one with no `repos:` line in its spec note. An open PR or an Orca workspace whose comment carries `AB#<id>` counts as a claim. For each repo in the note it creates a Task under the item, opens a `<id>-<slug>` workspace off `origin/dev`, and starts a worker with the build brief. Then it moves the item to Committed. The worker renames its branch, fills the Task, builds, and ships a draft PR.
 
+## Board actions
+
+The buttons on the board are `factory-orca://<action>?…` links. `Factory Orca Link.app` passes them to `open-orca.sh`, which runs `actions.py`. Results and refusals arrive as macOS notifications, each action is logged to `~/.claude/factory/actions.log`, and every action ends with a sync.
+
+| Button | Card | Does |
+| --- | --- | --- |
+| Approve / Start | Awaiting approval / Approved | `factory.py approve` / `start`, after a confirm |
+| AI review / e2e review | Any open PR | A fresh agent: in my PR's build workspace if it has one, otherwise in a `review-<n>` workspace on the PR head (Orca comment `review: <url>`). It posts on my PRs. On other people's PRs it writes findings to `~/.claude/factory/findings/<owner>-<repo>-<n>.md` and waits for Kenas |
+| Remove | Any card with a workspace | `orca worktree rm`, after a confirm. Refused while there are uncommitted or unpushed commits |
+| Hide / Unhide | Build and Reviews cards with no workspace | `hidden.json`. The card returns on a new head commit or a new review request |
+
+The Reviews lane (To review, AI reviewing, Findings ready, Reviewed) is worked out from GitHub, the live markers and the findings files. A findings file newer than the PR's last commit sends one notification.
+
 ## Gates: `~/.claude/hooks/factory-gate.py`
 
 A PreToolUse hook. Every block is logged to `~/.claude/factory/gate-log.jsonl`.

@@ -25,10 +25,18 @@ COLUMNS = [
     ("ai-review", "AI review", "build"),
     ("human-review", "Human review", "build"),
     ("merged", "Merged to dev", "build"),
+    ("to-review", "To review", "review"),
+    ("ai-reviewing", "AI reviewing", "review"),
+    ("findings-ready", "Findings ready", "review"),
+    ("reviewed", "Reviewed", "review"),
 ]
-# Cards here open their Orca workspace via ~/Applications/Factory Orca Link.app (runs open-orca.sh).
-ORCA_COLUMNS = {"building", "ai-review"}
-NEEDS_YOU = {"awaiting-approval", "human-review"}
+# Cards here open their Orca workspace via ~/Applications/Factory Orca Link.app (open-orca.sh -> actions.py).
+ORCA_COLUMNS = {"building", "ai-review", "ai-reviewing", "findings-ready"}
+NEEDS_YOU = {"awaiting-approval", "human-review", "findings-ready"}
+FINDINGS = os.path.join(OUT, "findings")
+HIDDEN = os.path.join(OUT, "hidden.json")
+NOTIFIED = os.path.join(OUT, "notified.json")
+EVAL_MARK = "<!-- factory:eval -->"
 # ADO state -> column, for an item no PR or workspace speaks for.
 ADO_COLUMN = {"Approved": "ready", "Committed": "ready", "In Progress": "building",
               "PR Review": "human-review", "Testing": "merged", "Pending Deployment": "merged"}
@@ -109,7 +117,7 @@ def fetch_prs():
     found = gh_json("search", "prs", "--author=@me", "--state=open", "--json", "repository", "--limit", "100")
     found += gh_json("search", "prs", "--author=@me", "--merged", f"--merged-at=>={since}",
                      "--json", "repository", "--limit", "100")
-    fields = "number,title,url,isDraft,body,labels,headRefName,updatedAt,mergedAt"
+    fields = "number,title,url,isDraft,body,labels,headRefName,headRefOid,updatedAt,mergedAt"
     prs, merged = [], []
     for repo in sorted({p["repository"]["nameWithOwner"] for p in found}):
         for state, bucket, extra in (("open", prs, []), ("merged", merged, ["--search", f"merged:>={since}"])):
@@ -117,7 +125,30 @@ def fetch_prs():
                              "--json", fields, "--limit", "50", *extra):
                 p["repo"] = repo.split("/")[1]
                 bucket.append(p)
+    for p in prs:  # per PR: comments and commits on a 50-PR list query exceed GitHub's GraphQL node limit
+        p.update(gh_json("pr", "view", p["url"], "--json", "comments,commits"))
     return prs, merged
+
+
+def fetch_reviews(orca):
+    """Others' open PRs that request my review, plus any PR a review-<n> workspace was opened for."""
+    me = sh("gh", "api", "user", "--jq", ".login").strip()
+    urls = {p["url"] for p in gh_json("search", "prs", "--review-requested=@me", "--state=open", "--json", "url", "--limit", "50")}
+    urls |= {m.group(1) for w in orca.values() if (m := re.match(r"review: (\S+)", w.get("comment") or ""))}
+    out = []
+    for u in sorted(urls):
+        p = gh_json("pr", "view", u, "--json", "number,title,url,author,state,isDraft,headRefOid,updatedAt,commits,reviews,reviewRequests")
+        if p["author"]["login"] == me:
+            continue
+        p["repo"] = u.split("/")[4]
+        p["requested"] = any((r.get("login") or "") == me for r in p["reviewRequests"])
+        p["mine_at"] = max((r.get("submittedAt") or "" for r in p["reviews"] if (r.get("author") or {}).get("login") == me), default="")
+        out.append(p)
+    return out
+
+
+def last_commit_at(p):
+    return max((c.get("committedDate") or "" for c in p.get("commits") or []), default="")
 
 
 def fetch_orca():
@@ -164,8 +195,9 @@ def idle_flag(wt):
     return [f"idle {age(t)}"] if NOW - t >= timedelta(hours=STALL_HOURS) else []
 
 
-def build_cards(items, prs, merged, orca, live):
+def build_cards(items, prs, merged, orca, live, reviews=()):
     cards, claimed = [], set()
+    live_paths = {m["cwd"] for m in live.values()}
 
     def claim(ids):
         claimed.update(ids)
@@ -176,9 +208,12 @@ def build_cards(items, prs, merged, orca, live):
         ids = ab_ids(p.get("body"))
         claim(ids)
         wt = orca.get(p["headRefName"])
+        evaled = any(EVAL_MARK in (c.get("body") or "") and (c.get("createdAt") or "") > last_commit_at(p)
+                     for c in p.get("comments") or [])
         cards.append({"col": "ai-review" if p["headRefName"] in live else "human-review",
                       "title": p["title"], "url": p["url"], "repo": p["repo"], "pr": p["number"], "ab": sorted(ids),
-                      "flags": (["draft"] if p["isDraft"] else []) + [l["name"] for l in p.get("labels") or []],
+                      "flags": (["draft"] if p["isDraft"] else []) + (["eval ✓"] if evaled else [])
+                      + [l["name"] for l in p.get("labels") or []], "head": p.get("headRefOid", ""),
                       "workspace": wt["displayName"] if wt else None, "wt": wt["path"] if wt else None, "age": age(p["updatedAt"])})
     for p in merged:
         ids = ab_ids(p.get("body"))
@@ -187,7 +222,7 @@ def build_cards(items, prs, merged, orca, live):
                       "ab": sorted(ids), "flags": [], "workspace": None, "age": age(p["mergedAt"])})
     for branch, wt in orca.items():
         name = wt.get("displayName") or branch
-        if branch in seen_branches or name.startswith("spec-"):
+        if branch in seen_branches or name.startswith("spec-") or (wt.get("comment") or "").startswith("review:"):
             continue
         ids = ab_ids(wt.get("comment"))
         claim(ids)
@@ -207,8 +242,67 @@ def build_cards(items, prs, merged, orca, live):
         else:
             col = ADO_COLUMN.get(it["state"], "ready")
         cards.append({"col": col, "title": it["title"], "url": f"{ADO}/_workitems/edit/{it['id']}", "repo": None,
-                      "pr": None, "ab": [it["id"]], "flags": [it["type"], it["state"]], "workspace": None, "age": ""})
+                      "pr": None, "ab": [it["id"]], "flags": [it["type"], it["state"]], "workspace": None, "age": "",
+                      "state": it["state"]})
+    by_url = {(w.get("comment") or "").removeprefix("review: ").strip(): w for w in orca.values()
+              if (w.get("comment") or "").startswith("review:")}
+    for p in reviews:
+        wt = by_url.get(p["url"])
+        last = last_commit_at(p)
+        findings = os.path.join(FINDINGS, f"{p['url'].split('/')[3]}-{p['repo']}-{p['number']}.md")
+        fresh = os.path.exists(findings) and datetime.fromtimestamp(os.path.getmtime(findings), timezone.utc).isoformat() > last
+        if wt and wt["path"] in live_paths:
+            col = "ai-reviewing"
+        elif p["mine_at"] > last:
+            col = "reviewed"
+        elif fresh:
+            col = "findings-ready"
+        else:
+            col = "to-review" if p["state"] == "OPEN" else "reviewed"
+        flags = (["draft"] if p["isDraft"] else []) + (["requested"] if p["requested"] else []) \
+            + ([p["state"].lower()] if p["state"] != "OPEN" else []) + (idle_flag(wt) if wt else [])
+        cards.append({"col": col, "title": p["title"], "url": p["url"], "repo": p["repo"], "pr": p["number"], "ab": [],
+                      "flags": flags, "author": p["author"]["login"], "head": p["headRefOid"], "req": str(int(p["requested"])),
+                      "findings": findings if fresh else None,
+                      "workspace": wt["displayName"] if wt else None, "wt": wt["path"] if wt else None, "age": age(p["updatedAt"])})
     return cards
+
+
+def apply_hidden(cards):
+    """Mark set-aside cards hidden; drop the entry once the card's head commit or review request has moved on."""
+    try:
+        hidden = json.load(open(HIDDEN))
+    except (OSError, ValueError):
+        hidden = {}
+    urls = {c["url"] for c in cards}
+    keep = {k: v for k, v in hidden.items() if k not in urls}  # a card missing this sync (a source blip) stays hidden
+    for c in cards:
+        h = hidden.get(c["url"])
+        if not h:
+            continue
+        new_commit = h["head"] != c.get("head", "")
+        new_request = h["req"] != "1" and c.get("req") == "1"
+        if not (new_commit or new_request):
+            c["hidden"] = age(datetime.fromtimestamp(h["at"], timezone.utc))
+            keep[c["url"]] = h
+    if keep != hidden:
+        json.dump(keep, open(HIDDEN, "w"), indent=1)
+
+
+def notify_findings(cards):
+    """One macOS notification per findings file that becomes ready."""
+    try:
+        seen = json.load(open(NOTIFIED))
+    except (OSError, ValueError):
+        seen = {}
+    for c in cards:
+        if c["col"] == "findings-ready" and c.get("findings"):
+            stamp = str(os.path.getmtime(c["findings"]))
+            if seen.get(c["url"]) != stamp:
+                msg = f"Findings ready on #{c['pr']} {c['title'][:60]}"
+                subprocess.run(["osascript", "-e", f"display notification {json.dumps(msg)} with title \"Factory\""])
+                seen[c["url"]] = stamp
+    json.dump(seen, open(NOTIFIED, "w"))
 
 
 # file:// blocks fetch, so the page re-injects board.js (written by each sync) and
@@ -217,7 +311,24 @@ SOFT_REFRESH = """<script>
 const KEY = "factory-collapsed";
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
 const collapsed = load();
+const SHOW = "factory-show-hidden";
+const showing = (() => { try { return JSON.parse(localStorage.getItem(SHOW)) || {}; } catch { return {}; } })();
+// Capture phase: a toggle inside <summary> must not fold the lane, and an action asks before it runs.
+document.addEventListener("click", e => {
+  const t = e.target.closest(".toggle");
+  if (t) {
+    e.preventDefault(); e.stopPropagation();
+    const d = t.closest("details");
+    d.dataset.show = d.dataset.show === "1" ? "0" : "1";
+    showing[d.dataset.lane] = d.dataset.show === "1";
+    try { localStorage.setItem(SHOW, JSON.stringify(showing)); } catch {}
+    return;
+  }
+  const a = e.target.closest("a[data-confirm]");
+  if (a && !confirm(a.dataset.confirm)) e.preventDefault();
+}, true);
 document.querySelectorAll("details[data-lane]").forEach(d => {
+  if (showing[d.dataset.lane]) d.dataset.show = "1";
   if (collapsed[d.dataset.lane]) d.open = false;
   d.addEventListener("toggle", () => {
     collapsed[d.dataset.lane] = !d.open;
@@ -245,7 +356,15 @@ setInterval(() => {
 </script>"""
 
 LANES = [("spec", "Spec", "Grilled and approved on the ADO item"),
-         ("build", "Build", "One PR per repo, stage read from the PR")]
+         ("build", "Build", "One PR per repo, stage read from the PR"),
+         ("review", "Reviews", "Other people's PRs: requested, or opened for review")]
+LANE_OF = {key: lane for key, _, lane in COLUMNS}
+
+
+def act(label, action, confirm=None, cls="", **q):
+    href = html.escape(f"factory-orca://{action}?{urllib.parse.urlencode(q)}")
+    ask = f' data-confirm="{html.escape(confirm)}"' if confirm else ""
+    return f'<a class="btn act {cls}" href="{href}"{ask}>{label}</a>'
 
 
 def render(cards, errors):
@@ -260,38 +379,64 @@ def render(cards, errors):
         meta += [f'<span>{html.escape(f.removeprefix("area:"))}</span>' for f in c["flags"] if f.startswith("area:")]
         meta += [f'<span class="flag{" warn" if f.startswith(("needs", "idle", "blocked")) else ""}">'
                  f'{html.escape(f)}</span>' for f in c["flags"] if not f.startswith("area:")]
+        lane = LANE_OF[c["col"]]
+        ab = c["ab"][0] if c["ab"] else None
+        acts = []
+        if c.get("hidden"):
+            meta.append(f'<span class="flag">hidden {c["hidden"]}</span>')
+            acts.append(act("Unhide", "unhide", key=c["url"]))
+        else:
+            if c["col"] == "awaiting-approval" and ab:
+                acts.append(act("Approve", "approve", f"Approve AB#{ab}? It moves to Approved and its spec note lands in the vault.", "go", id=ab))
+            if c["col"] == "ready" and c.get("state") == "Approved" and ab:
+                acts.append(act("Start", "start", f"Start AB#{ab}? This creates a Task and a build workspace, and moves it to Committed.", "go", id=ab))
+            if c["pr"] and c["col"] != "merged":
+                acts += [act("AI review", "review", url=c["url"], kind="ai"), act("e2e review", "review", url=c["url"], kind="e2e")]
+            if c.get("wt"):
+                acts.append(act("Remove", "remove", f"Remove workspace {c.get('workspace') or c['wt']}? It's refused if it holds uncommitted or unpushed work.",
+                                "quiet", path=c["wt"]))
+            elif lane != "spec":
+                acts.append(act("Hide", "hide", None, "quiet", key=c["url"], head=c.get("head", ""), req=c.get("req", "")))
         if orca_url:
             if c["pr"]:
                 meta.append(f'<a class="btn" href="{html.escape(c["url"])}" target="_blank" rel="noopener">PR ↗</a>')
             meta.append(f'<a class="btn orca" href="{orca_url}">Orca ↗</a>')
+        if c.get("author"):
+            meta.append(f'<span>@{html.escape(c["author"])}</span>')
         if c["age"]:
             meta.append(f'<span class="age">{c["age"]}</span>')
         if orca_url and c["col"] in ORCA_COLUMNS:
             hit = f'<a class="hit" href="{orca_url}" aria-label="Open {html.escape(c["title"])} in Orca"></a>'
         else:
             hit = f'<a class="hit" href="{html.escape(c["url"])}" target="_blank" rel="noopener" aria-label="{html.escape(c["title"])}"></a>'
-        return f'<div class="card">{hit}<div class="t">{html.escape(c["title"])}</div><div class="meta">{"".join(meta)}</div></div>'
+        actions = f'<div class="acts">{"".join(acts)}</div>' if acts else ""
+        return (f'<div class="card{" hidden" if c.get("hidden") else ""}">{hit}<div class="t">{html.escape(c["title"])}</div>'
+                f'<div class="meta">{"".join(meta)}</div>{actions}</div>')
 
     lanes, waiting = [], 0
     for lane, name, sub in LANES:
-        cols, total = [], 0
+        cols, total, hidden_n = [], 0, 0
         for key, label, phase in COLUMNS:
             if phase != lane:
                 continue
             cs = [c for c in cards if c["col"] == key]
-            total += len(cs)
+            shown = [c for c in cs if not c.get("hidden")]
+            total += len(shown)
+            hidden_n += len(cs) - len(shown)
             you = key in NEEDS_YOU
             if you:
-                waiting += len(cs)
-            tag = " · you" if you and cs else ""
-            cols.append(f'<section class="col" data-k="col-{key}" data-you="{int(you and bool(cs))}"><h3 data-k="h-{key}"><span>{label}{tag}</span>'
-                        f'<b>{len(cs)}</b></h3><div class="cards" data-k="c-{key}">{"".join(map(card, cs)) or "<p class=empty>Empty</p>"}</div></section>')
+                waiting += len(shown)
+            tag = " · you" if you and shown else ""
+            cols.append(f'<section class="col" data-k="col-{key}" data-you="{int(you and bool(shown))}"><h3 data-k="h-{key}"><span>{label}{tag}</span>'
+                        f'<b>{len(shown)}</b></h3><div class="cards" data-k="c-{key}">{"".join(map(card, cs)) or "<p class=empty>Empty</p>"}</div></section>')
+        toggle = (f'<button type="button" class="toggle" data-k="hid-{lane}" data-n="{hidden_n}">'
+                  f'<span class="off">Show hidden ({hidden_n})</span><span class="on">Showing hidden ({hidden_n})</span></button>') if lane != "spec" else ""
         lanes.append(f'<details class="lane {lane}" data-lane="{lane}" open><summary class="lanehead"><svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><h2>{name}</h2><p>{sub}</p><i></i>'
-                     f'<span data-k="n-{lane}">{total}</span></summary><div class="cols">{"".join(cols)}</div></details>')
+                     f'{toggle}<span data-k="n-{lane}">{total}</span></summary><div class="cols">{"".join(cols)}</div></details>')
     err = "".join(f'<p class="err">{html.escape(e)}</p>' for e in errors)
     stamp = datetime.now().strftime("%a %d %b, %H:%M")
     summary = f'<strong>{waiting}</strong> waiting on you' if waiting else "Nothing waiting on you"
-    inner = (f'<header><h1>Factory Board</h1><p data-k="sum">{summary}</p><time data-k="stamp">updated {stamp} · view only</time></header>'
+    inner = (f'<header><h1>Factory Board</h1><p data-k="sum">{summary}</p><time data-k="stamp">updated {stamp}</time></header>'
              f'<div data-k="err">{err}</div>{"".join(lanes)}')
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -337,6 +482,17 @@ h3 b{{margin-left:auto;font:500 11px var(--mono)}}
 .flag{{background:var(--bg);border-radius:4px;padding:0 5px}}.flag.warn{{color:var(--warn)}}
 .btn{{position:relative;font-weight:500;padding:2px 8px;border-radius:4px;background:var(--bg);color:var(--muted);text-decoration:none;transition:color .12s,background .12s}}
 .btn:hover{{color:var(--fg);background:var(--line)}}.btn.orca{{color:var(--build)}}.btn:focus-visible{{outline:2px solid var(--spec);outline-offset:1px}}
+.review .lanehead h2::before{{background:var(--you)}}
+.acts{{position:relative;display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}}
+.act{{font:500 11px var(--mono);border:1px solid var(--line);background:var(--surface);color:var(--fg)}}
+.act.go{{border-color:var(--spec);color:var(--spec)}}.act.quiet{{color:var(--muted);margin-left:auto}}
+.card.hidden{{background:var(--bg);border-style:dashed;border-color:var(--hover);opacity:.72;box-shadow:none}}
+.card.hidden .t{{color:var(--muted)}}
+.lane:not([data-show="1"]) .card.hidden{{display:none}}
+.toggle{{font:11px var(--mono);color:var(--muted);background:none;border:1px solid var(--line);border-radius:4px;padding:1px 7px;cursor:pointer}}
+.toggle:hover{{color:var(--fg);border-color:var(--hover)}}.toggle[data-n="0"]{{display:none}}
+.toggle .on,.lane[data-show="1"] .toggle .off{{display:none}}.lane[data-show="1"] .toggle .on{{display:inline}}
+.lane[data-show="1"] .toggle{{color:var(--fg);border-color:var(--fg)}}
 .empty{{margin:0;padding:12px;border:1px dashed var(--line);border-radius:6px;color:var(--muted);text-align:center;font-size:12px}}
 .err{{margin:0;color:var(--warn);font:12px var(--mono)}}
 @media (prefers-reduced-motion:reduce){{.card,.chev,.lanehead,.btn{{transition:none}}}}
@@ -453,11 +609,17 @@ def main():
             else: orca = res
         except Exception as e:  # one dead source must not blank the whole board
             errors.append(f"{name} unavailable: {e}")
-    cards = build_cards(items, prs, merged, orca, live_markers())
-    os.makedirs(OUT, exist_ok=True)
-    for name, fn, arg in (("BE watch", be_watch, cards), ("Merge metrics", record_merges, merged)):
+    reviews = []
+    try:
+        reviews = fetch_reviews(orca)
+    except Exception as e:
+        errors.append(f"Reviews unavailable: {e}")
+    cards = build_cards(items, prs, merged, orca, live_markers(), reviews)
+    os.makedirs(FINDINGS, exist_ok=True)
+    for name, fn, args in (("BE watch", be_watch, (cards, items)), ("Merge metrics", record_merges, (merged, items)),
+                           ("Hidden", apply_hidden, (cards,)), ("Notify", notify_findings, (cards,))):
         try:
-            fn(arg, items)
+            fn(*args)
         except Exception as e:
             errors.append(f"{name} failed: {e}")
     json.dump({"generatedAt": NOW.isoformat(), "errors": errors, "cards": cards}, open(f"{OUT}/board.json", "w"), indent=1)

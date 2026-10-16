@@ -6,7 +6,7 @@ The design, and every decision behind it, is in [`design/factory-design.html`](d
 
 | Path | What it is |
 | --- | --- |
-| `skills/factory/` | The `/factory` skill: `factory.py` (grill, check, approve, start), `sync.py` (board), `actions.py` (board buttons) |
+| `skills/factory/` | The `/factory` skill: `factory.py` (grill, check, approve, start), `sync.py` (board), `actions.py` (board buttons, behind `open-orca.sh`) |
 | `hooks/factory-gate.py` | PreToolUse gates: claim guard, ready gate, build-worker deny list |
 | `hooks/factory-live.py` | Live AI-review markers and instant board syncs |
 | `macos/` | The `factory-orca://` URL handler source and the launchd sync job |
