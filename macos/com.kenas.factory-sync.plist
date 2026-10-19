@@ -13,8 +13,9 @@
 	<string>com.kenas.factory-sync</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/usr/bin/python3</string>
-		<string>/Users/flexi/.claude/skills/factory/sync.py</string>
+		<string>/usr/bin/open</string>
+		<string>-g</string>
+		<string>factory-orca://sync</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
