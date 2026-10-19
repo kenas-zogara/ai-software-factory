@@ -369,7 +369,7 @@ def act(label, action, confirm=None, cls="", **q):
     return f'<a class="btn act {cls}" href="{href}"{ask}>{label}</a>'
 
 
-def render(cards, errors):
+def render(cards, errors, sources=None):
     def card(c):
         meta = []
         if c["repo"]:
@@ -438,7 +438,9 @@ def render(cards, errors):
     err = "".join(f'<p class="err">{html.escape(e)}</p>' for e in errors)
     stamp = datetime.now().strftime("%a %d %b, %H:%M:%S")  # seconds, so Refresh sees a sync that lands in the same minute
     summary = f'<strong>{waiting}</strong> waiting on you' if waiting else "Nothing waiting on you"
-    inner = (f'<header><h1>Factory Board</h1><p data-k="sum">{summary}</p><time data-k="stamp">updated {stamp}</time><a class="btn act refresh" href="factory-orca://sync">Refresh</a></header>'
+    src = " · ".join(f'<span class="{"" if ok else "down"}">{n} {s:.0f}s</span>' for n, (ok, s) in (sources or {}).items())
+    inner = (f'<header><h1>Factory Board</h1><p data-k="sum">{summary}</p><span class="src" data-k="src">{src}</span>'
+             f'<time data-k="stamp">updated {stamp}</time><a class="btn act refresh" href="factory-orca://sync">Refresh</a></header>'
              f'<div data-k="err">{err}</div>{"".join(lanes)}')
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -461,6 +463,7 @@ h1{{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em}}
 header p{{margin:0;color:var(--muted)}}header strong{{color:var(--you);font-weight:600}}
 header time{{margin-left:auto;font:12px var(--mono);color:var(--muted)}}
 .refresh[data-busy]{{color:var(--muted);pointer-events:none}}
+.src{{margin-left:auto;font:12px var(--mono);color:var(--muted)}}.src .down{{color:var(--warn)}}.src+time{{margin-left:0}}
 .lane{{display:block}}[data-k="err"]:empty{{display:none}}.lane[open]>.cols{{margin-top:12px}}
 .lanehead{{cursor:pointer;list-style:none;user-select:none;display:flex;align-items:center;gap:10px;margin:0 -8px;padding:6px 8px;border-radius:6px;transition:background .12s}}
 .lanehead:hover{{background:var(--surface)}}.lanehead:focus-visible{{outline:2px solid var(--spec);outline-offset:2px}}
@@ -604,19 +607,26 @@ def record_merges(merged, items):
 
 def main():
     errors, items, prs, merged, orca = [], {}, [], [], {}
+    sources = {}  # name -> [ok, seconds], shown in the header so a refresh says what it read
     for name, fn in (("ADO", fetch_ado), ("GitHub", fetch_prs), ("Orca", fetch_orca)):
+        t = time.time()
         try:
             res = fn()
             if name == "ADO": items = res
             elif name == "GitHub": prs, merged = res
             else: orca = res
+            sources[name] = [True, time.time() - t]
         except Exception as e:  # one dead source must not blank the whole board
             errors.append(f"{name} unavailable: {e}")
+            sources[name] = [False, time.time() - t]
     reviews = []
+    t = time.time()
     try:
         reviews = fetch_reviews(orca)
     except Exception as e:
         errors.append(f"Reviews unavailable: {e}")
+        sources["GitHub"][0] = False
+    sources["GitHub"][1] += time.time() - t
     cards = build_cards(items, prs, merged, orca, live_markers(), reviews)
     os.makedirs(FINDINGS, exist_ok=True)
     for name, fn, args in (("BE watch", be_watch, (cards, items)), ("Merge metrics", record_merges, (merged, items)),
@@ -627,7 +637,7 @@ def main():
             errors.append(f"{name} failed: {e}")
     json.dump({"generatedAt": NOW.isoformat(), "errors": errors, "cards": cards}, open(f"{OUT}/board.json", "w"), indent=1)
     tmp = f"{OUT}/board.html.tmp"
-    page, inner = render(cards, errors)
+    page, inner = render(cards, errors, sources)
     open(tmp, "w").write(page)
     os.replace(tmp, f"{OUT}/board.html")
     open(tmp, "w").write(f"applyBoard({json.dumps(inner)});")
