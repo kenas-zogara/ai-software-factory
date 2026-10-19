@@ -330,13 +330,31 @@ window.applyBoard = inner => {
     if (cur.innerHTML !== n.innerHTML) cur.innerHTML = n.innerHTML;
   });
 };
-setInterval(() => {
+const reload = () => {
   document.getElementById("board-js")?.remove();
   const s = document.createElement("script");
   s.id = "board-js";
   s.src = "board.js?t=" + Date.now();
   document.body.append(s);
-}, 20000);
+};
+setInterval(reload, 20000);
+// Refresh: the link starts a sync; poll every 3s until the stamp moves, giving up after 2 minutes.
+document.addEventListener("click", e => {
+  const r = e.target.closest(".refresh");
+  if (!r || r.dataset.busy) return;
+  const stamp = () => document.querySelector('[data-k="stamp"]').textContent;
+  const before = stamp(), started = Date.now();
+  r.dataset.busy = "1";
+  r.textContent = "Syncing…";
+  const poll = setInterval(() => {
+    reload();
+    if (stamp() !== before || Date.now() - started > 120000) {
+      clearInterval(poll);
+      delete r.dataset.busy;
+      r.textContent = "Refresh";
+    }
+  }, 3000);
+});
 </script>"""
 
 LANES = [("spec", "Spec", "Grilled and approved on the ADO item"),
@@ -418,9 +436,9 @@ def render(cards, errors):
         lanes.append(f'<details class="lane {lane}" data-lane="{lane}" open><summary class="lanehead"><svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><h2>{name}</h2><p>{sub}</p><i></i>'
                      f'{toggle}<span data-k="n-{lane}">{total}</span></summary><div class="cols">{"".join(cols)}</div></details>')
     err = "".join(f'<p class="err">{html.escape(e)}</p>' for e in errors)
-    stamp = datetime.now().strftime("%a %d %b, %H:%M")
+    stamp = datetime.now().strftime("%a %d %b, %H:%M:%S")  # seconds, so Refresh sees a sync that lands in the same minute
     summary = f'<strong>{waiting}</strong> waiting on you' if waiting else "Nothing waiting on you"
-    inner = (f'<header><h1>Factory Board</h1><p data-k="sum">{summary}</p><time data-k="stamp">updated {stamp}</time></header>'
+    inner = (f'<header><h1>Factory Board</h1><p data-k="sum">{summary}</p><time data-k="stamp">updated {stamp}</time><a class="btn act refresh" href="factory-orca://sync">Refresh</a></header>'
              f'<div data-k="err">{err}</div>{"".join(lanes)}')
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -442,6 +460,7 @@ header{{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 20px}}
 h1{{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em}}
 header p{{margin:0;color:var(--muted)}}header strong{{color:var(--you);font-weight:600}}
 header time{{margin-left:auto;font:12px var(--mono);color:var(--muted)}}
+.refresh[data-busy]{{color:var(--muted);pointer-events:none}}
 .lane{{display:block}}[data-k="err"]:empty{{display:none}}.lane[open]>.cols{{margin-top:12px}}
 .lanehead{{cursor:pointer;list-style:none;user-select:none;display:flex;align-items:center;gap:10px;margin:0 -8px;padding:6px 8px;border-radius:6px;transition:background .12s}}
 .lanehead:hover{{background:var(--surface)}}.lanehead:focus-visible{{outline:2px solid var(--spec);outline-offset:2px}}

@@ -8,6 +8,7 @@
   remove?path=P            orca worktree rm, refused while the workspace holds local-only work
   hide?key=K&head=H&req=R  set a card aside until its head commit or review request changes
   unhide?key=K
+  sync                     the header's Refresh button: just the sync every action ends with
 
 Runs detached with no terminal, so results and refusals go to ~/.claude/factory/actions.log.
 Every action ends with a sync, so the card moves at once."""
@@ -127,6 +128,8 @@ def main(url):
             set_hidden(q["key"], {"head": q.get("head", ""), "req": q.get("req", ""), "at": time.time()})
         elif action == "unhide":
             set_hidden(q["key"], None)
+        elif action == "sync":
+            pass  # the sync below is the whole action
         else:
             log(f"Unknown board action: {action}")
     except Exception as e:
