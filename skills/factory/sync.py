@@ -111,39 +111,47 @@ def fetch_ado():
     return items
 
 
-def fetch_prs():
+PR_FIELDS = """number title url isDraft body state headRefName headRefOid updatedAt mergedAt
+  repository { name } author { login } labels(first: 20) { nodes { name } }
+  commits(last: 1) { nodes { commit { committedDate } } }
+  comments(last: 30) { nodes { body createdAt } }
+  reviews(last: 30) { nodes { author { login } submittedAt body } }
+  reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }"""
+
+
+def flat_pr(n):
+    """GraphQL PR node -> the shape the board reads (gh's --json shape)."""
+    return {**n, "repo": n["repository"]["name"], "labels": n["labels"]["nodes"],
+            "commits": [c["commit"] for c in n["commits"]["nodes"]], "comments": n["comments"]["nodes"],
+            "reviews": n["reviews"]["nodes"],
+            "reviewRequests": [r["requestedReviewer"] or {} for r in n["reviewRequests"]["nodes"]]}
+
+
+def fetch_github(orca):
+    """Everything the board needs from GitHub in one GraphQL request: my open PRs, my PRs merged in the last
+    7 days, and others' PRs that request my review or have a review-<n> workspace. ~1s, against ~20 gh calls."""
     since = (NOW - timedelta(days=7)).date().isoformat()
-    found = gh_json("search", "prs", "--author=@me", "--state=open", "--json", "repository", "--limit", "100")
-    found += gh_json("search", "prs", "--author=@me", "--merged", f"--merged-at=>={since}",
-                     "--json", "repository", "--limit", "100")
-    fields = "number,title,url,isDraft,body,labels,headRefName,headRefOid,updatedAt,mergedAt"
-    prs, merged = [], []
-    for repo in sorted({p["repository"]["nameWithOwner"] for p in found}):
-        for state, bucket, extra in (("open", prs, []), ("merged", merged, ["--search", f"merged:>={since}"])):
-            for p in gh_json("pr", "list", "--repo", repo, "--author", "@me", "--state", state,
-                             "--json", fields, "--limit", "50", *extra):
-                p["repo"] = repo.split("/")[1]
-                bucket.append(p)
-    for p in prs:  # per PR: comments and commits on a 50-PR list query exceed GitHub's GraphQL node limit
-        p.update(gh_json("pr", "view", p["url"], "--json", "comments,commits"))
-    return prs, merged
-
-
-def fetch_reviews(orca):
-    """Others' open PRs that request my review, plus any PR a review-<n> workspace was opened for."""
-    me = sh("gh", "api", "user", "--jq", ".login").strip()
-    urls = {p["url"] for p in gh_json("search", "prs", "--review-requested=@me", "--state=open", "--json", "url", "--limit", "50")}
-    urls |= {m.group(1) for w in orca.values() if (m := re.match(r"review: (\S+)", w.get("comment") or ""))}
-    out = []
-    for u in sorted(urls):
-        p = gh_json("pr", "view", u, "--json", "number,title,url,author,state,isDraft,headRefOid,updatedAt,commits,reviews,reviewRequests")
+    pr = f"... on PullRequest {{ {PR_FIELDS} }}"
+    watched = sorted({m.group(1) for w in orca.values() if (m := re.match(r"review: (\S+)", w.get("comment") or ""))})
+    query = (f'{{ viewer {{ login }}\n'
+             f'  open: search(query: "is:pr is:open author:@me", type: ISSUE, first: 50) {{ nodes {{ {pr} }} }}\n'
+             f'  merged: search(query: "is:pr is:merged author:@me merged:>={since}", type: ISSUE, first: 50) {{ nodes {{ {pr} }} }}\n'
+             f'  asked: search(query: "is:pr is:open review-requested:@me", type: ISSUE, first: 50) {{ nodes {{ {pr} }} }}\n'
+             + "".join(f'  w{i}: resource(url: "{u}") {{ {pr} }}\n' for i, u in enumerate(watched)) + "}")
+    d = gh_json("api", "graphql", "-f", f"query={query}")["data"]
+    me = d["viewer"]["login"]
+    prs = [flat_pr(n) for n in d["open"]["nodes"] if n]
+    merged = [flat_pr(n) for n in d["merged"]["nodes"] if n]
+    others = {n["url"]: n for n in d["asked"]["nodes"] + [d[f"w{i}"] for i in range(len(watched))] if n}
+    reviews = []
+    for n in others.values():
+        p = flat_pr(n)
         if p["author"]["login"] == me:
             continue
-        p["repo"] = u.split("/")[4]
-        p["requested"] = any((r.get("login") or "") == me for r in p["reviewRequests"])
+        p["requested"] = any(r.get("login") == me for r in p["reviewRequests"])
         p["mine_at"] = max((r.get("submittedAt") or "" for r in p["reviews"] if (r.get("author") or {}).get("login") == me), default="")
-        out.append(p)
-    return out
+        reviews.append(p)
+    return prs, merged, reviews
 
 
 def last_commit_at(p):
@@ -581,14 +589,15 @@ def record_merges(merged, items):
         gates = [json.loads(l) for l in open(GATE_LOG)]
     except (OSError, ValueError):
         gates = []
-    me = sh("gh", "api", "user", "--jq", ".login").strip()
+    me = None
     for p in merged:
         for pbi in {spec_id(i, items) for i in ab_ids(p.get("body"))}:
             notes = glob.glob(os.path.join(VAULT, "specs", f"{pbi}-*.md"))
             if not notes or p["url"] in open(notes[0]).read():
                 continue
             repo = f"Flexii321/{p['repo']}"
-            blocks = [g for g in gates if g.get("pr") == p["url"] or g.get("ab") in ab_ids(p.get("body"))
+            me = me or sh("gh", "api", "user", "--jq", ".login").strip()
+            blocks =[g for g in gates if g.get("pr") == p["url"] or g.get("ab") in ab_ids(p.get("body"))
                       or f"/{pbi}-" in g.get("cwd", "")]
             convo = gh_json("pr", "view", str(p["number"]), "-R", repo, "--json", "comments,reviews")
             evals = sum("<!-- factory:eval -->" in (c.get("body") or "") for c in convo["comments"])
@@ -607,26 +616,20 @@ def record_merges(merged, items):
 
 def main():
     errors, items, prs, merged, orca = [], {}, [], [], {}
+    reviews = []
     sources = {}  # name -> [ok, seconds], shown in the header so a refresh says what it read
-    for name, fn in (("ADO", fetch_ado), ("GitHub", fetch_prs), ("Orca", fetch_orca)):
+    # Orca first: GitHub needs its review-<n> workspaces to know which unrequested PRs to fetch.
+    for name, fn in (("ADO", fetch_ado), ("Orca", fetch_orca), ("GitHub", lambda: fetch_github(orca))):
         t = time.time()
         try:
             res = fn()
             if name == "ADO": items = res
-            elif name == "GitHub": prs, merged = res
+            elif name == "GitHub": prs, merged, reviews = res
             else: orca = res
             sources[name] = [True, time.time() - t]
         except Exception as e:  # one dead source must not blank the whole board
             errors.append(f"{name} unavailable: {e}")
             sources[name] = [False, time.time() - t]
-    reviews = []
-    t = time.time()
-    try:
-        reviews = fetch_reviews(orca)
-    except Exception as e:
-        errors.append(f"Reviews unavailable: {e}")
-        sources["GitHub"][0] = False
-    sources["GitHub"][1] += time.time() - t
     cards = build_cards(items, prs, merged, orca, live_markers(), reviews)
     os.makedirs(FINDINGS, exist_ok=True)
     for name, fn, args in (("BE watch", be_watch, (cards, items)), ("Merge metrics", record_merges, (merged, items)),
