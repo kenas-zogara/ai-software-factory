@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Factory gates, PreToolUse. Design: https://claude.ai/artifact/FsrvLPEKuiQBXjLQMiNqFE
 #   gh pr create  claim guard: every AB# in the body is past the spec gate, and no other open PR in this repo claims it
-#   gh pr ready   ready gate: test-first or "No test:", an eval newer than the last commit, UI evidence, a docs verdict
+#   gh pr ready   ready gate: test-first or "No test:", UI evidence, a docs verdict
 #   build worker  deny list for sessions in an Orca build workspace (<id>-<slug>): no force-push to a shared
 #                 branch, no Slack posts, no new ADO items or spec-field edits
 # Every block is appended to ~/.claude/factory/gate-log.jsonl; merge metrics read it.
@@ -16,7 +16,6 @@ cmd = inp.get("command", "") if tool == "Bash" else ""
 cmd = re.sub(r"<<-?\s*(['\"]?)(\w+)\1.*?\n\s*\2\b", "", cmd, flags=re.S)
 START = r"(?:^|[;&|(]\s*|\n\s*)"
 LOG = os.path.expanduser("~/.claude/factory/gate-log.jsonl")
-EVAL_MARK = "<!-- factory:eval -->"
 PRE_SPEC = {"New", "Removed"}
 SHARED = {"dev", "main", "master", "staging", "production"}
 SPEC_FIELDS = ("/fields/System.Title", "/fields/Microsoft.VSTS.Common.AcceptanceCriteria")
@@ -109,13 +108,6 @@ def ready_gate():
         if first_code is not None and (first_test is None or first_test > first_code):
             fails.append("Test first: no commit touches a test before (or with) the first code commit. "
                          "Add a 'No test: <reason>' line to the PR body if this change deserves none.")
-
-    last_commit = max((c.get("committedDate") or "" for c in pr["commits"]), default="")
-    evals = [c.get("createdAt") or c.get("submittedAt") or "" for c in pr["comments"] + pr["reviews"]
-             if EVAL_MARK in (c.get("body") or "")]
-    if not any(t > last_commit for t in evals):
-        fails.append(f"Eval: no eval comment (marked {EVAL_MARK}) newer than the last commit. Eval is manual: "
-                     "do not run it yourself. Stop and ask Kenas to start AI review from the board.")
 
     if any(UI_FILE.search(p) for p in files) and "<img" not in body and not re.search(r"^\s*No UI change:\s*\S", body, re.M | re.I):
         fails.append("UI evidence: the PR touches UI files but its body has no screenshot. Add them per the "

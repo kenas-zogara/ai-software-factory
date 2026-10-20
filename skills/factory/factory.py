@@ -126,9 +126,9 @@ def brief(i, f, task, repo, note):
             f"1. Rename the branch to this repo's prefix convention (worktree-workspace playbook). "
             f"2. plan from the decision log's Design and Slices, then fill Task {task} with its sections per az-create-ticket. "
             f"If Slices lists more than one, build only the first; the claim guard allows one open PR per item, so list the rest under Blocked on me. "
-            f"3. test first, implement, review. "
+            f"3. test first, implement, then the repo's review skill on your own diff. "
             f"4. ship as a draft PR whose body carries AB#{task} and AB#{i}. "
-            f"5. Stop and report. Do not run the eval or gh pr ready: eval is manual, and Kenas starts it from the board when he wants it.")
+            f"5. Stop and report. Leave the PR as a draft.")
 
 
 def cmd_start(i):

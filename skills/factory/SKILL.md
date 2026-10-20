@@ -39,14 +39,28 @@ You shape the PBI or Bug with Kenas until it passes the spec gate. Write no code
    ```
 
    Commit it to this branch. Commit again after every round.
-3. **Grill, top-down through four stages.** Run `cat ~/.claude/skills/grilling/SKILL.md` and follow it with Kenas. Each stage's decisions are prerequisites of the next, so they order the frontier. Run a stage only when it leaves Kenas a decision. Otherwise write its answer from the code check in one line and move on.
+3. **Grill, top-down through four stages.** Run `cat ~/.claude/skills/grilling/SKILL.md` and follow it with Kenas. Each stage's decisions are prerequisites of the next, so they order the frontier. Run a stage only when it leaves Kenas a decision. Otherwise write its answer from the code check in one line and move on. The FE component tree and a multi-box architecture diagram are drawn either way.
 
    | Stage | Settles | Lands in |
    | --- | --- | --- |
    | Product | Who the user is, the problem, the user stories. If the parent Feature does not name the user, ask that first | The item: Problem, Why, What, AC |
-   | Architecture | Where each story lands: which app or package, BE service and API, DB, infra, mobile | `repos:` and `BE dependency:` lines |
-   | Program design | Only the choices the repo's conventions do not already settle. Read its `docs/architecture.md` and the domain rule doc before you recommend | The note's `## Design` |
+   | Architecture | Where each story lands: which app or package, BE service and API, DB, infra, mobile. When it touches more than one box, draw it with the `diagram-design` skill, type architecture delta, publish it as a private artifact, and show it before program design starts | `repos:` and `BE dependency:` lines. The diagram link goes in the note's `## Design`, never on the item |
+   | Program design | How it is built inside each layer. Read the repo's `docs/architecture.md` and the domain rule doc first. For FE work, always draw the component tree below | The note's `## Design` |
    | Vertical slices | The PRs, each user-visible and shippable alone, with scope and done-when. Dependencies go first. After them, the slice Kenas can judge against the AC goes first | The note's `## Slices`, in build order |
+
+   The FE component tree is pseudo-JSX. Mark `+` new, `~` changed, and leave existing nodes unmarked. A trailing comment names the node's data (query or mutation) and who owns its state. `fns:` lists new helpers with their home folder. Draw up to 3 options, each with a one-line trade-off, and mark your pick:
+
+   ```
+   Option A (pick): one tab, server-paged
+   <WorkerDetailsPage>                    // route, owns ?tab (nuqs)
+     <WorkerHeader worker />
+     <Tabs>
+       + <ShiftHistoryTab workerId>       // useShiftHistoryQuery(workerId)
+           <AdminTable columns rows />
+           + <EmptyState />
+       ~ <ProfileTab />                   // drop useAttributes()
+   fns: + toShiftRows(dto) → Row[]        // features/workers/lib/
+   ```
 
    Design and Slices hold code, so they stay in the note, which the build reads. The item stays code-free. When the code check leaves Kenas no decision in any stage, skip the interview: show him the drafted spec and ask for a yes.
 
@@ -94,9 +108,8 @@ The Reviews lane (To review, AI reviewing, Findings ready, Reviewed) is worked o
 A PreToolUse hook. Every block is logged to `~/.claude/factory/gate-log.jsonl`.
 
 - **`gh pr create`, the claim guard.** Every `AB#` in the body must be past the spec gate (for a Task, its parent's state), and no other open PR in the repo may claim it.
-- **`gh pr ready`, the ready gate.** Four checks:
+- **`gh pr ready`, the ready gate.** Three checks. Eval is not one of them: Kenas runs it when he chooses, or with the board's AI review button.
   - a test commit at or before the first code commit, or a `No test: <reason>` line
-  - an eval comment (first line `<!-- factory:eval -->`) newer than the last commit. Eval is manual: only Kenas starts it, with the board's AI review button
   - `<img>` evidence when UI files changed, or a `No UI change: <reason>` line
   - docs changed, or "not doc-affecting"
 - **Build workspaces (`<id>-<slug>`), the deny list.** No force-push to a shared branch or without a named branch. No Slack posts. No new ADO items, and no edits to a spec's title or AC.
