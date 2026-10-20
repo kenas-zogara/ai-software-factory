@@ -124,12 +124,11 @@ def brief(i, f, task, repo, note):
     return (f"/kenas-mode Build Task {task} for PBI {i} '{f['System.Title']}' in {repo}. "
             f"Spec: {ADO}/_workitems/edit/{i} (owns the AC). Decision log: {note}. Read both before any code. "
             f"1. Rename the branch to this repo's prefix convention (worktree-workspace playbook). "
-            f"2. plan, then fill Task {task} with its sections per az-create-ticket. "
+            f"2. plan from the decision log's Design and Slices, then fill Task {task} with its sections per az-create-ticket. "
+            f"If Slices lists more than one, build only the first; the claim guard allows one open PR per item, so list the rest under Blocked on me. "
             f"3. test first, implement, review. "
             f"4. ship as a draft PR whose body carries AB#{task} and AB#{i}. "
-            f"5. AI review: spawn a fresh kenas subagent to run the eval playbook on the PR and post its verdict comment; "
-            f"fix what it finds, and rerun it after any new commit. "
-            f"6. gh pr ready. The ready gate names anything missing; fix it, never bypass it. Then stop and report.")
+            f"5. Stop and report. Do not run the eval or gh pr ready: eval is manual, and Kenas starts it from the board when he wants it.")
 
 
 def cmd_start(i):

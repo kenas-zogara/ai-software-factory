@@ -114,8 +114,8 @@ def ready_gate():
     evals = [c.get("createdAt") or c.get("submittedAt") or "" for c in pr["comments"] + pr["reviews"]
              if EVAL_MARK in (c.get("body") or "")]
     if not any(t > last_commit for t in evals):
-        fails.append(f"Eval: no eval comment (marked {EVAL_MARK}) newer than the last commit. Run the eval "
-                     "playbook from a fresh agent and post it on the PR.")
+        fails.append(f"Eval: no eval comment (marked {EVAL_MARK}) newer than the last commit. Eval is manual: "
+                     "do not run it yourself. Stop and ask Kenas to start AI review from the board.")
 
     if any(UI_FILE.search(p) for p in files) and "<img" not in body and not re.search(r"^\s*No UI change:\s*\S", body, re.M | re.I):
         fails.append("UI evidence: the PR touches UI files but its body has no screenshot. Add them per the "

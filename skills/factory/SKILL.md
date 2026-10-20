@@ -18,7 +18,9 @@ Run `factory.py grill <id>` and relay its output. It refuses an item past `New`,
 
 You shape the PBI or Bug with Kenas until it passes the spec gate. Write no code, and put no code in the item.
 
-1. **Read the sources.** Read the item with its relations through the ADO MCP. Then read its parent Feature (Figma is often linked only there), its sibling PBIs, and any BE PBI or PR it depends on. Read repo code only to check a claim. Code never goes into the PBI.
+1. **Read the sources, and check the code in the same turn.** Read the item with its relations through the ADO MCP. Then read its parent Feature (Figma is often linked only there), its sibling PBIs, and any BE PBI or PR it depends on. In the same turn, dispatch an `Explore` subagent to find what the code decides today: the current behaviour, the shared rule that owns it, and which repo and app hold it. This worktree is the vault, not a repo, so read code with `git -C ~/Documents/flexii/<repo> fetch -q origin dev && git -C ~/Documents/flexii/<repo> show origin/dev:<path>`. A question whose answer might be "match what exists" waits for that check. Code never goes into the PBI.
+
+   For a Bug, reproduce the symptom to what the user sees, per step 1 of the `bug-fix` playbook, before you write Why or AC. Harm the repro did not show stays out of Why.
 2. **Start the note** at `specs/<id>-<slug>.md`:
 
    ```markdown
@@ -30,18 +32,31 @@ You shape the PBI or Bug with Kenas until it passes the spec gate. Write no code
    topics: []
    ---
    ## Decisions
+   ## Design
+   ## Slices
    ## Open questions
    ## Grill log
    ```
 
    Commit it to this branch. Commit again after every round.
-3. **Grill.** Run `cat ~/.claude/skills/grilling/SKILL.md` and follow it with Kenas. After each round:
+3. **Grill, top-down through four stages.** Run `cat ~/.claude/skills/grilling/SKILL.md` and follow it with Kenas. Each stage's decisions are prerequisites of the next, so they order the frontier. Run a stage only when it leaves Kenas a decision. Otherwise write its answer from the code check in one line and move on.
+
+   | Stage | Settles | Lands in |
+   | --- | --- | --- |
+   | Product | Who the user is, the problem, the user stories. If the parent Feature does not name the user, ask that first | The item: Problem, Why, What, AC |
+   | Architecture | Where each story lands: which app or package, BE service and API, DB, infra, mobile | `repos:` and `BE dependency:` lines |
+   | Program design | Only the choices the repo's conventions do not already settle. Read its `docs/architecture.md` and the domain rule doc before you recommend | The note's `## Design` |
+   | Vertical slices | The PRs, each user-visible and shippable alone, with scope and done-when. Dependencies go first. After them, the slice Kenas can judge against the AC goes first | The note's `## Slices`, in build order |
+
+   Design and Slices hold code, so they stay in the note, which the build reads. The item stays code-free. When the code check leaves Kenas no decision in any stage, skip the interview: show him the drafted spec and ask for a yes.
+
+   After each round:
    - a settled decision goes under **Decisions** as one dated line with its reason
    - an unsettled one goes under **Open questions**
    - the condensed round goes under **Grill log**
 
    Decisions from calls belong here too. Ask Kenas whether any were made outside the ticket.
-4. **Write the spec back to the item** using the `az-create-ticket` conventions: `<h3>` Problem, Why and What, and checkable AC with no code. For a Bug: repro steps and the expected behaviour. Also add:
+4. **Write the spec back to the item** using the conventions in `~/Documents/flexii/flex-store/.agents/skills/az-create-ticket/SKILL.md` (the vault has no repo skills): `<h3>` Problem, Why and What, and checkable AC with no code. For a Bug: repro steps and the expected behaviour. Also add:
    - a `BE dependency: <PR, PBI, or none>` line
    - the Figma frame links, or a `no Figma` line
 
@@ -81,7 +96,7 @@ A PreToolUse hook. Every block is logged to `~/.claude/factory/gate-log.jsonl`.
 - **`gh pr create`, the claim guard.** Every `AB#` in the body must be past the spec gate (for a Task, its parent's state), and no other open PR in the repo may claim it.
 - **`gh pr ready`, the ready gate.** Four checks:
   - a test commit at or before the first code commit, or a `No test: <reason>` line
-  - an eval comment (first line `<!-- factory:eval -->`) newer than the last commit
+  - an eval comment (first line `<!-- factory:eval -->`) newer than the last commit. Eval is manual: only Kenas starts it, with the board's AI review button
   - `<img>` evidence when UI files changed, or a `No UI change: <reason>` line
   - docs changed, or "not doc-affecting"
 - **Build workspaces (`<id>-<slug>`), the deny list.** No force-push to a shared branch or without a named branch. No Slack posts. No new ADO items, and no edits to a spec's title or AC.
