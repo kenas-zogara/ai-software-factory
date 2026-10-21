@@ -5,6 +5,7 @@
   factory.py check <id>     run the spec-gate check, change nothing
   factory.py approve <id>   check, then move the item to Approved, comment, land the note, close the workspace
   factory.py start <id>     one Task and one build workspace per repo in the spec note; item -> Committed
+  factory.py start <task> [repo]  one build workspace for a To Do Task; Task -> In Progress
 """
 import glob, html, json, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(__file__))
@@ -121,29 +122,36 @@ def note_repos(note):
 
 
 def brief(i, f, task, repo, note):
+    source = "the decision log's Design and Slices" if note else f"Task {task}'s description"
     return (f"/kenas-mode Build Task {task} for PBI {i} '{f['System.Title']}' in {repo}. "
-            f"Spec: {ADO}/_workitems/edit/{i} (owns the AC). Decision log: {note}. Read both before any code. "
+            f"Spec: {ADO}/_workitems/edit/{i} (owns the AC). Decision log: {note or 'none'}. Read both before any code. "
             f"1. Rename the branch to this repo's prefix convention (worktree-workspace playbook). "
-            f"2. plan from the decision log's Design and Slices, then fill Task {task} with its sections per az-create-ticket. "
+            f"2. plan from {source}, then fill Task {task} with its sections per az-create-ticket. "
             f"If Slices lists more than one, build only the first; the claim guard allows one open PR per item, so list the rest under Blocked on me. "
             f"3. test first, implement, then the repo's review skill on your own diff. "
             f"4. ship as a draft PR whose body carries AB#{task} and AB#{i}. "
             f"5. Stop and report. Leave the PR as a draft.")
 
 
-def cmd_start(i):
+def find_note(*ids):
+    return next((h[0] for i in ids if (h := glob.glob(os.path.join(VAULT, "specs", f"{i}-*.md")))), None)
+
+
+def cmd_start(i, repo=None):
     # ponytail: no gh pr create guard hook and no draft PR at start; the worker opens it via ship. Add the hook when a second worker races a claim.
     f = item(i)
+    if f["System.WorkItemType"] == "Task":
+        return start_task(i, f, repo)
     if f["System.State"] not in (APPROVED, "Committed"):
-        sys.exit(f"{i} is {f['System.State']}. Only an Approved spec starts a build.")
-    note = (glob.glob(os.path.join(VAULT, "specs", f"{i}-*.md")) or [None])[0]
+        sys.exit(f"{i} is {f['System.State']}. Only an Approved spec or a To Do Task starts a build.")
+    note = find_note(i)
     repos = note_repos(note) if note else []
     if not repos:
         sys.exit(f"No repos: line in the spec note for {i}. Add one, e.g. repos: [flex-store].")
     taken = [w["displayName"] for w in worktrees() if f"AB#{i}" in (w.get("comment") or "")]
     if taken:
         sys.exit(f"{i} is already claimed by workspace(s): {', '.join(taken)}.")
-    slug = re.sub(r"[^a-z0-9]+", "-", re.sub(r"^\[[^\]]*\]\s*", "", f["System.Title"]).lower()).strip("-")[:40].rstrip("-")
+    slug = slug_of(f)
     iteration = ado(f"wit/workitems/{i}?fields=System.IterationPath&api-version=7.1")["fields"]["System.IterationPath"]
     for repo in repos:
         if prs := gh_json("pr", "list", "-R", f"Flexii321/{repo}", "--state", "open", "--search", f"AB#{i}", "--json", "number"):
@@ -157,16 +165,46 @@ def cmd_start(i):
             {"op": "add", "path": "/relations/-", "value": {"rel": "System.LinkTypes.Hierarchy-Reverse",
                                                             "url": f"{ADO}/_apis/wit/workItems/{i}"}},
         ], patch=True)["id"]
-        sh("orca", "worktree", "create", "--repo", f"path:{os.path.expanduser('~/Documents/flexii/' + repo)}",
-           "--name", f"{i}-{slug}", "--no-parent", "--base-branch", "origin/dev", "--setup", "run",
-           "--comment", f"build: AB#{i} AB#{task} {f['System.Title']}",
-           "--agent", "claude", "--prompt", brief(i, f, task, repo, note), "--json")
+        open_build(i, f, task, repo, note, f"{i}-{slug}")
         print(f"{repo}: Task {task} created, workspace {i}-{slug} opened, worker started.")
     ado(f"wit/workitems/{i}?api-version=7.1", [{"op": "add", "path": "/fields/System.State", "value": "Committed"}], patch=True)
 
 
+def slug_of(f):
+    return re.sub(r"[^a-z0-9]+", "-", re.sub(r"^\[[^\]]*\]\s*", "", f["System.Title"]).lower()).strip("-")[:40].rstrip("-")
+
+
+def open_build(pbi, pf, task, repo, note, name):
+    sh("orca", "worktree", "create", "--repo", f"path:{os.path.expanduser('~/Documents/flexii/' + repo)}",
+       "--name", name, "--no-parent", "--base-branch", "origin/dev", "--setup", "run",
+       "--comment", f"build: AB#{pbi} AB#{task} {pf['System.Title']}",
+       "--agent", "claude", "--prompt", brief(pbi, pf, task, repo, note), "--json")
+
+
+def start_task(t, f, repo):
+    """A Task is already one repo's build: no spec gate of its own, no child Task. Its parent owns the spec."""
+    if f["System.State"] != "To Do":
+        sys.exit(f"Task {t} is {f['System.State']}. Only a To Do Task starts a build.")
+    if not f.get("System.Parent"):
+        sys.exit(f"Task {t} has no parent PBI or Bug to own its spec.")
+    pbi = f["System.Parent"]
+    note = find_note(t, pbi)
+    repos = [repo] if repo else (note_repos(note) if note else [])
+    if len(repos) != 1:
+        sys.exit(f"Name Task {t}'s repo: factory.py start {t} <repo>, or one repos: entry in specs/{t}-<slug>.md.")
+    repo = repos[0]
+    if taken := [w["displayName"] for w in worktrees() if f"AB#{t}" in (w.get("comment") or "")]:
+        sys.exit(f"Task {t} is already claimed by workspace(s): {', '.join(taken)}.")
+    if prs := gh_json("pr", "list", "-R", f"Flexii321/{repo}", "--state", "open", "--search", f"AB#{t}", "--json", "number"):
+        sys.exit(f"Task {t} is already claimed by PR #{prs[0]['number']} in {repo}.")
+    open_build(pbi, item(pbi), t, repo, note, f"{t}-{slug_of(f)}")
+    ado(f"wit/workitems/{t}?api-version=7.1", [{"op": "add", "path": "/fields/System.State", "value": "In Progress"}], patch=True)
+    print(f"{repo}: workspace {t}-{slug_of(f)} opened for Task {t}, worker started. Task {t} is In Progress.")
+
+
 if __name__ == "__main__":
     cmds = {"grill": cmd_grill, "check": cmd_check, "approve": cmd_approve, "start": cmd_start}
-    if len(sys.argv) != 3 or sys.argv[1] not in cmds or not sys.argv[2].isdigit():
+    a = sys.argv[1:]
+    if not (2 <= len(a) <= 3) or a[0] not in cmds or not a[1].isdigit() or (len(a) == 3 and a[0] != "start"):
         sys.exit(__doc__)
-    sys.exit(1 if cmds[sys.argv[1]](int(sys.argv[2])) else 0)
+    sys.exit(1 if cmds[a[0]](int(a[1]), *a[2:]) else 0)

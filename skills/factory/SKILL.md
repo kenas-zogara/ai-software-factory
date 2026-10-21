@@ -90,6 +90,8 @@ If the fast-forward fails, the vault's `main` has moved. Rebase `spec-<id>` onto
 
 Move the item into the sprint first if asked (ADO MCP, `System.IterationPath`). Then run `factory.py start <id>` and relay its output. It refuses an item that isn't Approved or Committed, or one with no `repos:` line in its spec note. An open PR or an Orca workspace whose comment carries `AB#<id>` counts as a claim. For each repo in the note it creates a Task under the item, opens a `<id>-<slug>` workspace off `origin/dev`, and starts a worker with the build brief. Then it moves the item to Committed. The worker renames its branch, fills the Task, builds, and ships a draft PR.
 
+`start <task> [repo]` builds an existing To Do Task instead: one workspace, no new Task, and the Task moves to In Progress. Its repo comes from the argument, or from the single `repos:` entry in the Task's or its parent's spec note. The parent's state still has to pass the claim guard at `gh pr create`.
+
 ## Board actions
 
 The buttons on the board are `factory-orca://<action>?…` links. `Factory Orca Link.app` passes them to `open-orca.sh`, which runs `actions.py`. Each action, with its result or refusal, is logged to `~/.claude/factory/actions.log`. Every action ends with a sync.
