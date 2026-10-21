@@ -337,7 +337,39 @@ window.applyBoard = inner => {
     if (n.children.length && n.querySelector("[data-k]")) return;
     if (cur.innerHTML !== n.innerHTML) cur.innerHTML = n.innerHTML;
   });
+  filter();
 };
+// Repo filter: a CSS rule hides other repos' cards, so swapped-in cards obey it too; counts follow the filter.
+const REPO = "factory-repo";
+let repo = (() => { try { return localStorage.getItem(REPO) || ""; } catch { return ""; } })();
+const pick = document.querySelector(".repofilter");
+const rule = document.head.appendChild(document.createElement("style"));
+function filter() {
+  const repos = [...new Set([...document.querySelectorAll(".card")].map(c => c.dataset.repo).filter(Boolean))].sort();
+  if (repo && !repos.includes(repo)) repos.push(repo);  // keep the pick while its repo has no cards this sync
+  if (pick.dataset.opts !== repos.join("|")) {
+    pick.replaceChildren(new Option("All repos", ""), ...repos.map(r => new Option(r, r)));
+    pick.dataset.opts = repos.join("|");
+  }
+  pick.value = repo;
+  const only = repo ? `[data-repo="${CSS.escape(repo)}"]` : "";
+  rule.textContent = repo ? `.card:not(${only}){display:none}` : "";
+  document.querySelectorAll("details[data-lane]").forEach(d => {
+    let total = 0;
+    d.querySelectorAll(".col").forEach(col => {
+      const n = col.querySelectorAll(`.card${only}:not(.hidden)`).length;
+      col.querySelector("h3 b").textContent = n;
+      total += n;
+    });
+    d.querySelector(`[data-k="n-${d.dataset.lane}"]`).textContent = total;
+  });
+}
+pick.addEventListener("change", () => {
+  repo = pick.value;
+  try { localStorage.setItem(REPO, repo); } catch {}
+  filter();
+});
+filter();
 const reload = () => {
   document.getElementById("board-js")?.remove();
   const s = document.createElement("script");
@@ -420,7 +452,7 @@ def render(cards, errors, sources=None):
         else:
             hit = f'<a class="hit" href="{html.escape(c["url"])}" target="_blank" rel="noopener" aria-label="{html.escape(c["title"])}"></a>'
         actions = f'<div class="acts">{"".join(acts)}</div>' if acts else ""
-        return (f'<div class="card{" hidden" if c.get("hidden") else ""}">{hit}<div class="t">{html.escape(c["title"])}</div>'
+        return (f'<div class="card{" hidden" if c.get("hidden") else ""}" data-repo="{html.escape(c["repo"] or "")}">{hit}<div class="t">{html.escape(c["title"])}</div>'
                 f'<div class="meta">{"".join(meta)}</div>{actions}</div>')
 
     lanes, waiting = [], 0
@@ -447,7 +479,7 @@ def render(cards, errors, sources=None):
     stamp = datetime.now().strftime("%a %d %b, %H:%M:%S")  # seconds, so Refresh sees a sync that lands in the same minute
     summary = f'<strong>{waiting}</strong> waiting on you' if waiting else "Nothing waiting on you"
     src = " · ".join(f'<span class="{"" if ok else "down"}">{n} {s:.0f}s</span>' for n, (ok, s) in (sources or {}).items())
-    inner = (f'<header><h1>Factory Board</h1><p data-k="sum">{summary}</p><span class="src" data-k="src">{src}</span>'
+    inner = (f'<header><h1>Factory Board</h1><p data-k="sum">{summary}</p><select class="repofilter" aria-label="Filter by repository"></select><span class="src" data-k="src">{src}</span>'
              f'<time data-k="stamp">updated {stamp}</time><a class="btn act refresh" href="factory-orca://sync">Refresh</a></header>'
              f'<div data-k="err">{err}</div>{"".join(lanes)}')
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -471,6 +503,7 @@ h1{{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em}}
 header p{{margin:0;color:var(--muted)}}header strong{{color:var(--you);font-weight:600}}
 header time{{margin-left:auto;font:12px var(--mono);color:var(--muted)}}
 .refresh[data-busy]{{color:var(--muted);pointer-events:none}}
+.repofilter{{font:12px var(--mono);color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:2px 6px}}
 .src{{margin-left:auto;font:12px var(--mono);color:var(--muted)}}.src .down{{color:var(--warn)}}.src+time{{margin-left:0}}
 .lane{{display:block}}[data-k="err"]:empty{{display:none}}.lane[open]>.cols{{margin-top:12px}}
 .lanehead{{cursor:pointer;list-style:none;user-select:none;display:flex;align-items:center;gap:10px;margin:0 -8px;padding:6px 8px;border-radius:6px;transition:background .12s}}
