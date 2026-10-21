@@ -3,7 +3,7 @@
 
   factory.py grill <id>     open the spec workspace for an ADO item and start its grill session
   factory.py check <id>     run the spec-gate check, change nothing
-  factory.py approve <id>   check, then move the item to Approved, comment, land the note, close the workspace
+  factory.py approve <id>   check, then move the item to Approved (a Task stays To Do), comment, land the note, close the workspace
   factory.py start <id>     one Task and one build workspace per repo in the spec note; item -> Committed
   factory.py start <task> [repo]  one build workspace for a To Do Task; Task -> In Progress
 """
@@ -15,6 +15,7 @@ VAULT = os.path.expanduser("~/Documents/flexii/flexii_documents")
 APPROVED = "Approved"
 ME = "kenas@flexii.net"
 FIELDS = "System.Title,System.WorkItemType,System.State,System.Description,System.Parent,Microsoft.VSTS.Common.AcceptanceCriteria,Microsoft.VSTS.TCM.ReproSteps"
+TASK_SECTIONS = ("What to build", "Contributes to", "Affected repositories and systems", "Target branch", "Blocking dependencies", "Done when")
 CODE = re.compile(r"<code>|```|\b[\w/.-]+\.(tsx?|jsx?|java|py|kt|sql)\b|\b\w+\(\)|\b[a-z]+[A-Z]\w*\b")
 
 
@@ -41,8 +42,33 @@ def note_path(i):
     return hits[0] if hits else None
 
 
+def section(note_text, name):
+    m = re.search(rf"^##\s+{name}\s*$(.*?)(?=^##\s|\Z)", note_text, re.M | re.S)
+    return m.group(1) if m else ""
+
+
+def check_task(i, f):
+    desc = f.get("System.Description") or ""
+    fails = []
+    missing = [h for h in TASK_SECTIONS if not re.search(rf"<h3>\s*{h}\s*</h3>", desc, re.I)]
+    if missing:
+        fails.append(f"1. Description is missing the {', '.join(missing)} section(s)")
+    note = note_path(i)
+    if not note:
+        fails.append(f"2. No spec note at specs/{i}-<slug>.md")
+    else:
+        s = open(note).read()
+        if empty := [h for h in ("Design", "Slices") if not section(s, h).strip()]:
+            fails.append(f"2. The spec note's {' and '.join(empty)} section(s) are empty")
+        if re.search(r"^\s*[-*\d]", section(s, "Open questions"), re.M):
+            fails.append("3. The spec note still has open questions")
+    return f, fails, note
+
+
 def check(i):
     f = item(i)
+    if f["System.WorkItemType"] == "Task":
+        return check_task(i, f)
     is_bug = f["System.WorkItemType"] == "Bug"
     desc = f.get("System.Description") or ""
     ac = f.get("Microsoft.VSTS.Common.AcceptanceCriteria") or ""
@@ -68,15 +94,19 @@ def check(i):
     if not note:
         fails.append(f"5. No spec note at specs/{i}-<slug>.md")
     else:
-        sec = re.search(r"^##\s+Open questions\s*$(.*?)(?=^##\s|\Z)", open(note).read(), re.M | re.S)
-        if sec and re.search(r"^\s*[-*\d]", sec.group(1), re.M):
+        if re.search(r"^\s*[-*\d]", section(open(note).read(), "Open questions"), re.M):
             fails.append("5. The spec note still has open questions")
     return f, fails, note
 
 
+def spec_state(f):
+    """The state an item is specced in: a Task is To Do, a PBI or Bug is New."""
+    return "To Do" if f["System.WorkItemType"] == "Task" else "New"
+
+
 def cmd_grill(i):
     f = item(i)
-    if f["System.State"] != "New":
+    if f["System.State"] != spec_state(f):
         sys.exit(f"{i} is {f['System.State']}, past the spec phase. Nothing to grill.")
     if wt := spec_wt(i):
         sys.exit(f"spec-{i} already exists at {wt['path']}. Open it in Orca.")
@@ -91,13 +121,14 @@ def cmd_grill(i):
 def cmd_check(i):
     f, fails, note = check(i)
     print(f"{i} {f['System.Title']} ({f['System.State']})")
-    print("\n".join(fails) if fails else "All 5 checks pass.")
+    print("\n".join(fails) if fails else "All checks pass.")
     return fails
 
 
 def cmd_approve(i):
     f, fails, note = check(i)
-    if f["System.State"] != "New":
+    is_task = f["System.WorkItemType"] == "Task"
+    if f["System.State"] != spec_state(f):
         sys.exit(f"{i} is already {f['System.State']}.")
     if fails:
         sys.exit("Not approved:\n" + "\n".join(fails))
@@ -108,12 +139,14 @@ def cmd_approve(i):
             sh("git", "-C", wt["path"], "add", "-A")
             sh("git", "-C", wt["path"], "commit", "-m", f"spec({i}): {f['System.Title']}")
         sh("git", "-C", VAULT, "merge", "--ff-only", wt["branch"].removeprefix("refs/heads/"))
-    ado(f"wit/workitems/{i}?api-version=7.1", [{"op": "add", "path": "/fields/System.State", "value": APPROVED}], patch=True)
+    # A Task has no Approved state: it stays To Do, which is what start builds from.
+    if not is_task:
+        ado(f"wit/workitems/{i}?api-version=7.1", [{"op": "add", "path": "/fields/System.State", "value": APPROVED}], patch=True)
     ado(f"wit/workItems/{i}/comments?api-version=7.1-preview.4",
-        {"text": f"Spec approved by Kenas. All five spec-gate checks passed. Decision log: flexii_documents/{rel}"})
+        {"text": f"Spec approved by Kenas. All spec-gate checks passed. Decision log: flexii_documents/{rel}"})
     if wt:
         sh("orca", "worktree", "rm", "--worktree", f"name:spec-{i}")
-    print(f"{i} is Approved. Note landed at {rel}." + (" spec workspace removed." if wt else ""))
+    print(f"{i} is {'approved, still To Do' if is_task else 'Approved'}. Note landed at {rel}." + (" spec workspace removed." if wt else ""))
 
 
 def note_repos(note):

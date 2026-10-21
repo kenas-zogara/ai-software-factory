@@ -12,11 +12,13 @@ Scripts live next to this file. Run them with `python3 ~/.claude/skills/factory/
 
 ## `grill <id>`: run in your main session
 
-Run `factory.py grill <id>` and relay its output. It refuses an item past `New`, and an item that already has a `spec-<id>` workspace. Otherwise it opens a worktree of the flexii_documents vault named `spec-<id>`, and starts Claude in it with `/factory grill-session <id>`.
+Run `factory.py grill <id>` and relay its output. It refuses an item past `New` (a Task: past `To Do`), and an item that already has a `spec-<id>` workspace. Otherwise it opens a worktree of the flexii_documents vault named `spec-<id>`, and starts Claude in it with `/factory grill-session <id>`.
 
 ## `grill-session <id>`: runs inside `spec-<id>`
 
 You shape the PBI or Bug with Kenas until it passes the spec gate. Write no code, and put no code in the item.
+
+**A Task** gets a shorter grill. Its parent PBI or Bug owns Product and Architecture: read them from the parent and its spec note, and never re-ask them. Run only Program design and Vertical slices. In step 4, write the Task's six sections per the `az-create-ticket` Task table instead of Problem, Why, What and AC. Code is welcome there. The note's Design and Slices must both be filled to pass the check.
 
 1. **Read the sources, and check the code in the same turn.** Read the item with its relations through the ADO MCP. Then read its parent Feature (Figma is often linked only there), its sibling PBIs, and any BE PBI or PR it depends on. In the same turn, dispatch an `Explore` subagent to find what the code decides today: the current behaviour, the shared rule that owns it, and which repo and app hold it. This worktree is the vault, not a repo, so read code with `git -C ~/Documents/flexii/<repo> fetch -q origin dev && git -C ~/Documents/flexii/<repo> show origin/dev:<path>`. A question whose answer might be "match what exists" waits for that check. Code never goes into the PBI.
 
@@ -75,13 +77,13 @@ You shape the PBI or Bug with Kenas until it passes the spec gate. Write no code
    - the Figma frame links, or a `no Figma` line
 
    Show Kenas the text first. Write it through the ADO MCP once he says yes.
-5. **Check.** Run `factory.py check <id>` and fix what it reports. When it prints `All 5 checks pass.`, tell Kenas to run `/factory approve <id>` from his main session. Stop there. Moving the item is his call, and its state is not yours to change.
+5. **Check.** Run `factory.py check <id>` and fix what it reports. When it prints `All checks pass.`, tell Kenas to run `/factory approve <id>` from his main session. Stop there. Moving the item is his call, and its state is not yours to change.
 
 ## `approve <id>`: run in your main session
 
 Run `factory.py approve <id>` and relay its output word for word. The script:
-1. reruns the five checks and refuses on any failure
-2. commits the note, fast-forwards the spec branch into the vault's `main`, moves the item to Approved, and posts an ADO comment
+1. reruns the checks and refuses on any failure
+2. commits the note, fast-forwards the spec branch into the vault's `main`, moves the item to Approved (a Task stays To Do), and posts an ADO comment
 3. removes the `spec-<id>` workspace
 
 If the fast-forward fails, the vault's `main` has moved. Rebase `spec-<id>` onto it, then rerun approve.
