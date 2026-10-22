@@ -10,13 +10,14 @@
   unhide?key=K
   sync                     the header's Refresh button: just the sync every action ends with
 
-Runs detached with no terminal, so results and refusals go to ~/.claude/factory/actions.log.
+Runs detached with no terminal, so results and refusals go to ~/.claude/factory/actions.log, and to
+pending.json, which the board reads to show a running action as "Working…" and a failed one under its button.
 Every action ends with a sync, so the card moves at once."""
 import json, os, re, subprocess, sys, time, urllib.parse
 
 os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/Applications/Orca.app/Contents/Resources/bin:" + os.environ.get("PATH", "")
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from sync import FINDINGS, HIDDEN, LIVE, OUT, gh_json, sh  # noqa: E402
+from sync import FINDINGS, HIDDEN, LIVE, OUT, PENDING, gh_json, sh  # noqa: E402
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 REPOS = os.path.expanduser("~/Documents/flexii")
@@ -26,6 +27,19 @@ LOG = os.path.join(OUT, "actions.log")
 def log(msg):
     with open(LOG, "a") as f:
         f.write(f"{time.strftime('%F %T')} {msg}\n")
+
+
+def set_pending(url, entry):
+    # ponytail: read-modify-write with no lock; two actions finishing in the same instant can drop one entry
+    try:
+        p = json.load(open(PENDING))
+    except (OSError, ValueError):
+        p = {}
+    if entry is None:
+        p.pop(url, None)
+    else:
+        p[url] = {**entry, "at": time.time()}
+    json.dump(p, open(PENDING, "w"), indent=1)
 
 
 def worktrees():
@@ -43,8 +57,10 @@ def focus(path):
 def factory(cmd, i):
     r = subprocess.run(["/usr/bin/python3", os.path.join(HERE, "factory.py"), cmd, i], capture_output=True, text=True, timeout=600)
     out = (r.stdout.strip() or r.stderr.strip()).splitlines()
-    log(out[-1] if out else f"{cmd} {i} finished")
-    return r.returncode == 0
+    last = out[-1] if out else f"{cmd} {i} finished"
+    if r.returncode:
+        raise RuntimeError(last)
+    log(last)
 
 
 def findings_path(owner, repo, n):
@@ -81,11 +97,40 @@ def review(url, kind):
            "--prompt", review_prompt(url, pr, mine, kind, findings_path(owner, repo, n)))
         return log(f"{kind} review started on #{n} in {wt.get('displayName') or wt['path']}")
     local = os.path.join(REPOS, repo)
-    sh("git", "-C", local, "fetch", "-q", "origin", f"+pull/{n}/head:refs/remotes/origin/pr/{n}")
-    sh("orca", "worktree", "create", "--repo", f"path:{local}", "--name", name, "--no-parent",
-       "--base-branch", f"origin/pr/{n}", "--setup", "run", "--activate", "--comment", f"review: {url}", "--reference", url,
-       "--agent", "claude", "--prompt", review_prompt(url, pr, mine, kind, findings_path(owner, repo, n)), "--json")
+    # Orca deletes a workspace's branch only while the ref it was created from still holds it. origin/pr/<n> is gone
+    # after the next `fetch --prune` ("Worktree deleted, branch kept"); refs/remotes/pr/ belongs to no remote, so it stays.
+    # ponytail: one ref per reviewed PR is never cleaned up; they only pin commits GitHub keeps anyway
+    sh("git", "-C", local, "fetch", "-q", "origin", f"+pull/{n}/head:{pr_ref(n)}")
+    create = ["orca", "worktree", "create", "--repo", f"path:{local}", "--name", name, "--no-parent",
+              "--base-branch", f"pr/{n}", "--setup", "run", "--activate", "--comment", f"review: {url}", "--reference", url,
+              "--agent", "claude", "--prompt", review_prompt(url, pr, mine, kind, findings_path(owner, repo, n)), "--json"]
+    # setup runs pnpm install before the call returns, so 60s was killing it mid-create
+    out = orca_json(*create)
+    op = (out.get("error") or {}).get("code") == "agent_session_operation_unknown" and find_key(out, "operationId")
+    if op:  # Orca's documented recovery: same command, same cwd, plus --retry-launch
+        out = orca_json(*create, "--retry-launch", op)
+    if not out.get("ok"):
+        raise RuntimeError(f"orca worktree create: {json.dumps(out.get('error'))[:200]}")
     log(f"{kind} review started on #{n} in a new workspace")
+
+
+def pr_ref(n):
+    return f"refs/remotes/pr/{n}"
+
+
+def orca_json(*cmd):
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        raise RuntimeError(f"{' '.join(cmd[:3])}: {(r.stderr.strip() or r.stdout.strip())[:200]}")
+
+
+def find_key(o, key):
+    if isinstance(o, dict):
+        return o.get(key) or next((v for v in (find_key(x, key) for x in o.values()) if v), None)
+    if isinstance(o, list):
+        return next((v for v in (find_key(x, key) for x in o) if v), None)
 
 
 def remove(path):
@@ -94,8 +139,8 @@ def remove(path):
     unpushed = git("log", "--oneline", "HEAD", "--not", "--remotes")
     if dirty or unpushed:
         why = "uncommitted changes" if dirty else f"{len(unpushed.splitlines())} unpushed commit(s)"
-        return log(f"Not removed: {os.path.basename(path)} has {why}.")
-    sh("orca", "worktree", "rm", "--worktree", f"path:{path}")
+        raise RuntimeError(f"{os.path.basename(path)} has {why}")
+    sh("orca", "worktree", "rm", "--worktree", f"path:{path}", timeout=900)
     log(f"Removed {os.path.basename(path)}")
 
 
@@ -116,6 +161,9 @@ def main(url):
     q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
     action = u.netloc or u.path.strip("/")
     log(url)
+    tracked = action in ("approve", "start", "review", "remove")
+    if tracked:
+        set_pending(url, {})
     try:
         if action == "open":
             focus(q["path"])
@@ -133,9 +181,13 @@ def main(url):
             pass  # the sync below is the whole action
         else:
             log(f"Unknown board action: {action}")
+        if tracked:
+            set_pending(url, None)
     except Exception as e:
         log(f"  failed: {e}")
         log(f"{action} failed: {str(e)[:120]}")
+        if tracked:
+            set_pending(url, {"error": str(e)[:160]})
     if action != "open":
         subprocess.run(["/usr/bin/python3", os.path.join(HERE, "sync.py")], capture_output=True, timeout=300)
 

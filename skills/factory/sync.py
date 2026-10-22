@@ -35,14 +35,15 @@ ORCA_COLUMNS = {"building", "ai-review", "ai-reviewing", "findings-ready"}
 NEEDS_YOU = {"awaiting-approval", "human-review", "findings-ready"}
 FINDINGS = os.path.join(OUT, "findings")
 HIDDEN = os.path.join(OUT, "hidden.json")
+PENDING = os.path.join(OUT, "pending.json")  # actions.py: {action url: {at} while running, {at, error} once it fails}
 EVAL_MARK = "<!-- factory:eval -->"
 # ADO state -> column, for an item no PR or workspace speaks for.
 ADO_COLUMN = {"Approved": "ready", "Committed": "ready", "In Progress": "building",
               "PR Review": "human-review", "Testing": "merged", "Pending Deployment": "merged"}
 
 
-def sh(*cmd):
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+def sh(*cmd, timeout=60):
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if r.returncode:
         raise RuntimeError(f"{' '.join(cmd[:3])}: {(r.stderr.strip() or r.stdout.strip())[:200]}")
     return r.stdout
@@ -338,6 +339,7 @@ window.applyBoard = inner => {
     if (cur.innerHTML !== n.innerHTML) cur.innerHTML = n.innerHTML;
   });
   filter();
+  markBusy();
 };
 // Repo filter: a CSS rule hides other repos' cards, so swapped-in cards obey it too; counts follow the filter.
 const REPO = "factory-repo";
@@ -395,6 +397,30 @@ document.addEventListener("click", e => {
     }
   }, 3000);
 });
+// Action buttons stay "Working…" from the click until a sync that started after it no longer lists the action
+// as running (actions.py keeps pending.json). sessionStorage carries the click across full reloads.
+const BUSY = "factory-busy";
+const busy = (() => { try { return JSON.parse(sessionStorage.getItem(BUSY)) || {}; } catch { return {}; } })();
+function markBusy() {
+  const syncedAt = +document.querySelector('[data-k="stamp"]').dataset.at * 1000;
+  for (const [href, clicked] of Object.entries(busy)) {
+    const btns = [...document.querySelectorAll("a.act")].filter(b => b.getAttribute("href") === href);
+    if (Date.now() - clicked > 900000 || (syncedAt > clicked && !btns.some(b => b.dataset.busy === "server"))) {
+      delete busy[href];
+      continue;
+    }
+    btns.forEach(b => { b.dataset.busy = b.dataset.busy || "1"; b.textContent = "Working…"; });
+  }
+  try { sessionStorage.setItem(BUSY, JSON.stringify(busy)); } catch {}
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest("a.act:not(.refresh)");
+  if (!a || e.defaultPrevented || a.dataset.busy) return;
+  busy[a.getAttribute("href")] = Date.now();
+  markBusy();
+});
+setInterval(() => { if (Object.keys(busy).length) reload(); }, 3000);
+markBusy();
 </script>"""
 
 LANES = [("spec", "Spec", "Grilled and approved on the ADO item"),
@@ -403,13 +429,32 @@ LANES = [("spec", "Spec", "Grilled and approved on the ADO item"),
 LANE_OF = {key: lane for key, _, lane in COLUMNS}
 
 
+def load_pending():
+    try:
+        p = json.load(open(PENDING))
+    except (OSError, ValueError):
+        return {}
+    # a run killed mid-action never clears its entry; errors stay up long enough to be read
+    return {k: v for k, v in p.items() if time.time() - v["at"] < (1800 if "error" in v else 900)}
+
+
+_pending = {}
+
+
 def act(label, action, confirm=None, cls="", **q):
-    href = html.escape(f"factory-orca://{action}?{urllib.parse.urlencode(q)}")
+    url = f"factory-orca://{action}?{urllib.parse.urlencode(q)}"
     ask = f' data-confirm="{html.escape(confirm)}"' if confirm else ""
-    return f'<a class="btn act {cls}" href="{href}"{ask}>{label}</a>'
+    p = _pending.get(url)
+    if p and "error" not in p:
+        return f'<a class="btn act {cls}" href="{html.escape(url)}" data-busy="server">Working…</a>'
+    err = f'<p class="acterr">{html.escape(label)} failed: {html.escape(p["error"])}</p>' if p else ""
+    return f'<a class="btn act {cls}" href="{html.escape(url)}"{ask}>{label}</a>{err}'
 
 
 def render(cards, errors, sources=None):
+    global _pending
+    _pending = load_pending()
+
     def card(c):
         meta = []
         if c["repo"]:
@@ -481,7 +526,7 @@ def render(cards, errors, sources=None):
     summary = f'<strong>{waiting}</strong> waiting on you' if waiting else "Nothing waiting on you"
     src = " · ".join(f'<span class="{"" if ok else "down"}">{n} {s:.0f}s</span>' for n, (ok, s) in (sources or {}).items())
     inner = (f'<header><h1>Factory Board</h1><p data-k="sum">{summary}</p><select class="repofilter" aria-label="Filter by repository"></select><span class="src" data-k="src">{src}</span>'
-             f'<time data-k="stamp">updated {stamp}</time><a class="btn act refresh" href="factory-orca://sync">Refresh</a></header>'
+             f'<time data-k="stamp" data-at="{NOW.timestamp():.0f}">updated {stamp}</time><a class="btn act refresh" href="factory-orca://sync">Refresh</a></header>'
              f'<div data-k="err">{err}</div>{"".join(lanes)}')
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -503,7 +548,9 @@ header{{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 20px}}
 h1{{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em}}
 header p{{margin:0;color:var(--muted)}}header strong{{color:var(--you);font-weight:600}}
 header time{{margin-left:auto;font:12px var(--mono);color:var(--muted)}}
-.refresh[data-busy]{{color:var(--muted);pointer-events:none}}
+.act[data-busy]{{color:var(--muted);border-color:var(--line);pointer-events:none;animation:pulse 1.2s ease-in-out infinite}}
+@keyframes pulse{{50%{{opacity:.45}}}}
+.acterr{{flex-basis:100%;margin:0;color:var(--warn);font:11px var(--mono);overflow-wrap:anywhere}}
 .repofilter{{font:12px var(--mono);color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:2px 6px}}
 .src{{margin-left:auto;font:12px var(--mono);color:var(--muted)}}.src .down{{color:var(--warn)}}.src+time{{margin-left:0}}
 .lane{{display:block}}[data-k="err"]:empty{{display:none}}.lane[open]>.cols{{margin-top:12px}}
@@ -543,7 +590,7 @@ h3 b{{margin-left:auto;font:500 11px var(--mono)}}
 .lane[data-show="1"] .toggle{{color:var(--fg);border-color:var(--fg)}}
 .empty{{margin:0;padding:12px;border:1px dashed var(--line);border-radius:6px;color:var(--muted);text-align:center;font-size:12px}}
 .err{{margin:0;color:var(--warn);font:12px var(--mono)}}
-@media (prefers-reduced-motion:reduce){{.card,.chev,.lanehead,.btn{{transition:none}}}}
+@media (prefers-reduced-motion:reduce){{.card,.chev,.lanehead,.btn{{transition:none}}.act[data-busy]{{animation:none}}}}
 </style></head><body><div class="wrap">{inner}</div>{SOFT_REFRESH}</body></html>"""
     return page, inner
 
