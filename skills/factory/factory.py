@@ -149,20 +149,25 @@ def cmd_approve(i):
     print(f"{i} is {'approved, still To Do' if is_task else 'Approved'}. Note landed at {rel}." + (" spec workspace removed." if wt else ""))
 
 
+# Stacked build: FACTORY_BASE=origin/<parent PR branch> factory.py start <id>
+BASE = os.environ.get("FACTORY_BASE", "origin/dev")
+
+
 def note_repos(note):
     m = re.search(r"^repos:\s*\[(.*?)\]", open(note).read(), re.M)
     return [r.strip() for r in m.group(1).split(",") if r.strip()] if m else []
 
 
 def brief(i, f, task, repo, note):
-    source = "the decision log's Design and Slices" if note else f"Task {task}'s description"
+    stack = f"based on {BASE.removeprefix('origin/')} (stacked; GitHub retargets it to dev when that merges) " if BASE != "origin/dev" else ""
+    source ="the decision log's Design and Slices" if note else f"Task {task}'s description"
     return (f"/kenas-mode Build Task {task} for PBI {i} '{f['System.Title']}' in {repo}. "
             f"Spec: {ADO}/_workitems/edit/{i} (owns the AC). Decision log: {note or 'none'}. Read both before any code. "
             f"1. Rename the branch to this repo's prefix convention (worktree-workspace playbook). "
             f"2. plan from {source}, then fill Task {task} with its sections per az-create-ticket. "
             f"If Slices lists more than one, build only the first; the claim guard allows one open PR per item, so list the rest under Blocked on me. "
             f"3. test first, implement, then the repo's review skill on your own diff. "
-            f"4. ship as a draft PR whose body carries AB#{task} and AB#{i}. "
+            f"4. ship as a draft PR {stack}whose body carries AB#{task} and AB#{i}. "
             f"5. Stop and report. Leave the PR as a draft.")
 
 
@@ -209,7 +214,7 @@ def slug_of(f):
 
 def open_build(pbi, pf, task, repo, note, name):
     sh("orca", "worktree", "create", "--repo", f"path:{os.path.expanduser('~/Documents/flexii/' + repo)}",
-       "--name", name, "--no-parent", "--base-branch", "origin/dev", "--setup", "run",
+       "--name", name, "--no-parent", "--base-branch", BASE, "--setup", "run",
        "--comment", f"build: AB#{pbi} AB#{task} {pf['System.Title']}",
        "--agent", "claude", "--prompt", brief(pbi, pf, task, repo, note), "--json")
 
