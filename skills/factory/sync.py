@@ -112,7 +112,7 @@ def fetch_ado():
 
 
 PR_FIELDS = """number title url isDraft body state headRefName headRefOid updatedAt mergedAt
-  repository { name } author { login } labels(first: 20) { nodes { name } }
+  repository { name } author { login avatarUrl(size: 32) } labels(first: 20) { nodes { name } }
   commits(last: 1) { nodes { commit { committedDate } } }
   comments(last: 30) { nodes { body createdAt } }
   reviews(last: 30) { nodes { author { login } submittedAt body } }
@@ -269,7 +269,7 @@ def build_cards(items, prs, merged, orca, live, reviews=()):
         flags = (["draft"] if p["isDraft"] else []) + (["requested"] if p["requested"] else []) \
             + ([p["state"].lower()] if p["state"] != "OPEN" else []) + (idle_flag(wt) if wt else [])
         cards.append({"col": col, "title": p["title"], "url": p["url"], "repo": p["repo"], "pr": p["number"], "ab": [],
-                      "flags": flags, "author": p["author"]["login"], "head": p["headRefOid"], "req": str(int(p["requested"])),
+                      "flags": flags, "author": p["author"]["login"], "avatar": p["author"].get("avatarUrl"), "head": p["headRefOid"], "req": str(int(p["requested"])),
                       "findings": findings if fresh else None,
                       "workspace": wt["displayName"] if wt else None, "wt": wt["path"] if wt else None, "age": age(p["updatedAt"])})
     return cards
@@ -451,8 +451,9 @@ def render(cards, errors, sources=None):
             hit = f'<a class="hit" href="{orca_url}" aria-label="Open {html.escape(c["title"])} in Orca"></a>'
         else:
             hit = f'<a class="hit" href="{html.escape(c["url"])}" target="_blank" rel="noopener" aria-label="{html.escape(c["title"])}"></a>'
+        av = f'<img class="av" src="{html.escape(c["avatar"])}" alt="" width="16" height="16">' if c.get("avatar") else ""
         actions = f'<div class="acts">{"".join(acts)}</div>' if acts else ""
-        return (f'<div class="card{" hidden" if c.get("hidden") else ""}" data-repo="{html.escape(c["repo"] or "")}">{hit}<div class="t">{html.escape(c["title"])}</div>'
+        return (f'<div class="card{" hidden" if c.get("hidden") else ""}" data-repo="{html.escape(c["repo"] or "")}">{hit}<div class="t">{av}{html.escape(c["title"])}</div>'
                 f'<div class="meta">{"".join(meta)}</div>{actions}</div>')
 
     lanes, waiting = [], 0
@@ -523,7 +524,7 @@ h3 b{{margin-left:auto;font:500 11px var(--mono)}}
 .card{{position:relative;display:grid;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;color:inherit;text-decoration:none;transition:border-color .12s}}
 .hit{{position:absolute;inset:0;border-radius:6px}}.card:hover{{border-color:var(--hover)}}.card:has(.hit:focus-visible){{outline:2px solid var(--spec);outline-offset:2px}}.hit:focus{{outline:none}}
 [data-you="1"] .card{{box-shadow:inset 2px 0 0 var(--you)}}
-.t{{font-weight:500;min-width:0;overflow-wrap:anywhere;text-wrap:pretty}}
+.t{{font-weight:500;min-width:0;overflow-wrap:anywhere;text-wrap:pretty}}.av{{width:16px;height:16px;border-radius:50%;vertical-align:-3px;margin-right:6px}}
 .meta{{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font:11px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}}.repo{{color:var(--fg)}}
 .age{{margin-left:auto}}
 .flag{{background:var(--bg);border-radius:4px;padding:0 5px}}.flag.warn{{color:var(--warn)}}
