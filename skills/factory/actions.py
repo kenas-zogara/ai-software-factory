@@ -76,13 +76,14 @@ def review(url, kind):
         for m in os.listdir(LIVE) if os.path.isdir(LIVE) else []:
             if json.load(open(os.path.join(LIVE, m))).get("cwd", "").startswith(wt["path"]):
                 return focus(wt["path"])  # a review is already running here
+        sh("orca", "reference", "add", url, "--worktree", f"path:{wt['path']}")
         sh("orca", "agent", "launch", "--agent", "claude", "--worktree", f"path:{wt['path']}", "--focus",
            "--prompt", review_prompt(url, pr, mine, kind, findings_path(owner, repo, n)))
         return log(f"{kind} review started on #{n} in {wt.get('displayName') or wt['path']}")
     local = os.path.join(REPOS, repo)
     sh("git", "-C", local, "fetch", "-q", "origin", f"+pull/{n}/head:refs/remotes/origin/pr/{n}")
     sh("orca", "worktree", "create", "--repo", f"path:{local}", "--name", name, "--no-parent",
-       "--base-branch", f"origin/pr/{n}", "--setup", "run", "--activate", "--comment", f"review: {url}",
+       "--base-branch", f"origin/pr/{n}", "--setup", "run", "--activate", "--comment", f"review: {url}", "--reference", url,
        "--agent", "claude", "--prompt", review_prompt(url, pr, mine, kind, findings_path(owner, repo, n)), "--json")
     log(f"{kind} review started on #{n} in a new workspace")
 
