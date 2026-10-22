@@ -451,7 +451,7 @@ def render(cards, errors, sources=None):
             hit = f'<a class="hit" href="{orca_url}" aria-label="Open {html.escape(c["title"])} in Orca"></a>'
         else:
             hit = f'<a class="hit" href="{html.escape(c["url"])}" target="_blank" rel="noopener" aria-label="{html.escape(c["title"])}"></a>'
-        av = f'<img class="av" src="{html.escape(c["avatar"])}" alt="" width="16" height="16">' if c.get("avatar") else ""
+        av = f'<img class="av" src="{html.escape(c["avatar"])}" alt="" width="18" height="18">' if c.get("avatar") else ""
         actions = f'<div class="acts">{"".join(acts)}</div>' if acts else ""
         return (f'<div class="card{" hidden" if c.get("hidden") else ""}" data-repo="{html.escape(c["repo"] or "")}">{hit}<div class="t">{av}{html.escape(c["title"])}</div>'
                 f'<div class="meta">{"".join(meta)}</div>{actions}</div>')
@@ -524,7 +524,7 @@ h3 b{{margin-left:auto;font:500 11px var(--mono)}}
 .card{{position:relative;display:grid;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;color:inherit;text-decoration:none;transition:border-color .12s}}
 .hit{{position:absolute;inset:0;border-radius:6px}}.card:hover{{border-color:var(--hover)}}.card:has(.hit:focus-visible){{outline:2px solid var(--spec);outline-offset:2px}}.hit:focus{{outline:none}}
 [data-you="1"] .card{{box-shadow:inset 2px 0 0 var(--you)}}
-.t{{font-weight:500;min-width:0;overflow-wrap:anywhere;text-wrap:pretty}}.av{{width:16px;height:16px;border-radius:50%;vertical-align:-3px;margin-right:6px}}
+.t{{font-weight:500;min-width:0;overflow-wrap:anywhere;text-wrap:pretty}}.t:has(.av){{display:flex;align-items:flex-start;gap:8px}}.av{{flex:none;width:18px;height:18px;margin-top:1px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 1px var(--line)}}
 .meta{{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font:11px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}}.repo{{color:var(--fg)}}
 .age{{margin-left:auto}}
 .flag{{background:var(--bg);border-radius:4px;padding:0 5px}}.flag.warn{{color:var(--warn)}}
