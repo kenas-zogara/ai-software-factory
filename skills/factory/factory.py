@@ -167,7 +167,7 @@ def brief(i, f, task, repo, note):
             f"2. plan from {source}, then fill Task {task} with its sections per az-create-ticket. "
             f"If Slices lists more than one, build only the first; the claim guard allows one open PR per item, so list the rest under Blocked on me. "
             f"3. test first, implement, then the repo's review skill on your own diff. "
-            f"4. ship as a draft PR {stack}whose body carries AB#{task} and AB#{i}. "
+            f"4. ship as a draft PR {stack}whose body carries AB#{task} only; the PBI shows the PR through its Task, per ship. "
             f"5. Stop and report. Leave the PR as a draft.")
 
 
