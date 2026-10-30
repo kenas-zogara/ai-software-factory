@@ -216,7 +216,9 @@ def open_build(pbi, pf, task, repo, note, name):
     sh("orca", "worktree", "create", "--repo", f"path:{os.path.expanduser('~/Documents/flexii/' + repo)}",
        "--name", name, "--no-parent", "--base-branch", BASE, "--setup", "run",
        "--comment", f"build: AB#{pbi} AB#{task} {pf['System.Title']}",
-       "--agent", "claude", "--prompt", brief(pbi, pf, task, repo, note), "--json")
+       "--agent", "claude", "--prompt", brief(pbi, pf, task, repo, note), "--json",
+       # Setup runs pnpm install (supply-chain check alone is ~20s); 60s killed it mid-run.
+       timeout=600)
 
 
 def start_task(t, f, repo):
