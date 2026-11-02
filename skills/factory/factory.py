@@ -175,6 +175,12 @@ def find_note(*ids):
     return next((h[0] for i in ids if (h := glob.glob(os.path.join(VAULT, "specs", f"{i}-*.md")))), None)
 
 
+def claiming_prs(repo, i):
+    # gh search splits "AB#6147" and matches a bare "6147" anywhere, so confirm the token in the body.
+    prs = gh_json("pr", "list", "-R", f"Flexii321/{repo}", "--state", "open", "--search", f"AB#{i}", "--json", "number,body")
+    return [p for p in prs if re.search(rf"AB#{i}\b", p["body"] or "")]
+
+
 def cmd_start(i, repo=None):
     # ponytail: no gh pr create guard hook and no draft PR at start; the worker opens it via ship. Add the hook when a second worker races a claim.
     f = item(i)
@@ -192,7 +198,7 @@ def cmd_start(i, repo=None):
     slug = slug_of(f)
     iteration = ado(f"wit/workitems/{i}?fields=System.IterationPath&api-version=7.1")["fields"]["System.IterationPath"]
     for repo in repos:
-        if prs := gh_json("pr", "list", "-R", f"Flexii321/{repo}", "--state", "open", "--search", f"AB#{i}", "--json", "number"):
+        if prs := claiming_prs(repo, i):
             print(f"{repo}: skipped, PR #{prs[0]['number']} already claims AB#{i}.")
             continue
         task = ado("wit/workitems/$Task?api-version=7.1", [
@@ -235,7 +241,7 @@ def start_task(t, f, repo):
     repo = repos[0]
     if taken := [w["displayName"] for w in worktrees() if f"AB#{t}" in (w.get("comment") or "")]:
         sys.exit(f"Task {t} is already claimed by workspace(s): {', '.join(taken)}.")
-    if prs := gh_json("pr", "list", "-R", f"Flexii321/{repo}", "--state", "open", "--search", f"AB#{t}", "--json", "number"):
+    if prs := claiming_prs(repo, t):
         sys.exit(f"Task {t} is already claimed by PR #{prs[0]['number']} in {repo}.")
     open_build(pbi, item(pbi), t, repo, note, f"{t}-{slug_of(f)}")
     ado(f"wit/workitems/{t}?api-version=7.1", [{"op": "add", "path": "/fields/System.State", "value": "In Progress"}], patch=True)

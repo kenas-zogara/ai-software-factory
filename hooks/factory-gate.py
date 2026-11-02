@@ -78,7 +78,8 @@ def claim_guard():
             deny("claim", f"AB#{i}'s spec is {spec['System.State']}, so it hasn't passed the spec gate. "
                           f"Run /factory grill and /factory approve on it first, or drop AB#{i} from the body.", ab=i)
         others = [p for p in gh("pr", "list", "-R", repo, "--state", "open", "--search", f"AB#{i}",
-                                "--json", "number,headRefName") if p["headRefName"] != branch]
+                                "--json", "number,headRefName,body")
+                  if p["headRefName"] != branch and re.search(rf"AB#{i}\b", p["body"] or "")]
         if others:
             deny("claim", f"AB#{i} is already claimed by open PR #{others[0]['number']} in {repo}. "
                           "One PR per Task per repo: stack on it or take a different Task.", ab=i)
