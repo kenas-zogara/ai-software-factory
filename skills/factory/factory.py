@@ -4,7 +4,7 @@
   factory.py grill <id>     open the spec workspace for an ADO item and start its grill session
   factory.py check <id>     run the spec-gate check, change nothing
   factory.py approve <id>   check, then post the approval comment (a New PBI or Bug also moves to Approved), land the note, close the workspace
-  factory.py start <id>     one Task and one build workspace per repo in the spec note; item -> Committed
+  factory.py start <id>     one Task per slice in the spec note, a build workspace for each repo's first; rerun adds new slices' Tasks
   factory.py start <task> [repo]  one build workspace for a To Do Task; Task -> In Progress
 """
 import glob, html, json, os, re, subprocess, sys
@@ -153,14 +153,28 @@ def note_repos(note):
     return [r.strip() for r in m.group(1).split(",") if r.strip()] if m else []
 
 
-def brief(i, f, task, repo, note):
+def note_slices(note, repos):
+    """[(repo, title)] in build order: each numbered **title** line under ## Slices, filed under its ### <repo>
+    heading, or under the only repo when there is one."""
+    out, repo = [], repos[0] if len(repos) == 1 else None
+    for line in section(open(note).read(), "Slices").splitlines():
+        if m := re.match(r"###\s+(\S+)", line):
+            repo = m.group(1) if m.group(1) in repos else None
+        elif repo and (m := re.match(r"\s*[1-9]\d*\.\s+\*\*(.+?)\*\*", line)):  # 0. is a prerequisite, not a PR
+            out.append((repo, m.group(1).replace("`", "").strip()))
+    return out
+
+
+def brief(i, f, task, repo, note, slice_title):
     stack = f"based on {BASE.removeprefix('origin/')} (stacked; GitHub retargets it to dev when that merges) " if BASE != "origin/dev" else ""
     source ="the decision log's Design and Slices" if note else f"Task {task}'s description"
-    return (f"/kenas-mode Build Task {task} for PBI {i} '{f['System.Title']}' in {repo}. "
+    return (f"/kenas-mode Build Task {task}, slice '{slice_title}', for PBI {i} '{f['System.Title']}' in {repo}. "
             f"Spec: {ADO}/_workitems/edit/{i} (owns the AC). Decision log: {note or 'none'}. Read both before any code. "
             f"1. Rename the branch to this repo's prefix convention (worktree-workspace playbook). "
-            f"2. plan from {source}, then fill Task {task} with its sections per az-create-ticket. "
-            f"If Slices lists more than one, build only the first; the claim guard allows one open PR per item, so list the rest under Blocked on me. "
+            f"2. plan from {source}, then fill Task {task}'s title and sections per az-create-ticket. "
+            f"Build only this slice: every other slice has its own Task. If it needs splitting, add the new slices to "
+            f"## Slices in {note or f'the spec note of {i}'} as numbered **title** lines, commit that, and list them under Blocked on me; "
+            f"Kenas reruns factory start {i}, which creates their Tasks. "
             f"3. test first, implement, then the repo's review skill on your own diff. "
             f"4. ship as a draft PR {stack}whose body carries AB#{task} only; the PBI shows the PR through its Task, per ship. "
             f"5. Stop and report. Leave the PR as a draft.")
@@ -187,37 +201,47 @@ def cmd_start(i, repo=None):
     repos = note_repos(note) if note else []
     if not repos:
         sys.exit(f"No repos: line in the spec note for {i}. Add one, e.g. repos: [flex-store].")
-    taken = [w["displayName"] for w in worktrees() if f"AB#{i}" in (w.get("comment") or "")]
-    if taken:
-        sys.exit(f"{i} is already claimed by workspace(s): {', '.join(taken)}.")
-    slug = slug_of(f)
-    iteration = ado(f"wit/workitems/{i}?fields=System.IterationPath&api-version=7.1")["fields"]["System.IterationPath"]
-    for repo in repos:
-        if prs := claiming_prs(repo, i):
-            print(f"{repo}: skipped, PR #{prs[0]['number']} already claims AB#{i}.")
+    slices = note_slices(note, repos)
+    # A repo the note gives no slices builds as one Task named after the item.
+    slices += [(r, f["System.Title"].split("] ", 1)[-1]) for r in repos if r not in {s[0] for s in slices}]
+    w = ado(f"wit/workitems/{i}?$expand=relations&api-version=7.1")
+    iteration = w["fields"]["System.IterationPath"]
+    kids = [r["url"].rsplit("/", 1)[1] for r in w.get("relations") or [] if r["rel"] == "System.LinkTypes.Hierarchy-Forward"]
+    # Workers retitle their Task, so match on the title start gave it: revision 1.
+    have = {ado(f"wit/workitems/{k}/revisions/1?api-version=7.1")["fields"]["System.Title"] for k in kids}
+    # The first start opens each repo's first slice. A rerun only adds Tasks for slices added since; they wait in To Do.
+    opened = set() if not kids else set(repos)
+    for repo, title in slices:
+        name = f"[{repo}] {title}"[:255]
+        if name in have:
             continue
         task = ado("wit/workitems/$Task?api-version=7.1", [
-            {"op": "add", "path": "/fields/System.Title", "value": f"[{repo}] {f['System.Title'].split('] ', 1)[-1]}"},
+            {"op": "add", "path": "/fields/System.Title", "value": name},
             {"op": "add", "path": "/fields/System.AreaPath", "value": "Flexii\\Web app"},
             {"op": "add", "path": "/fields/System.IterationPath", "value": iteration},
             {"op": "add", "path": "/fields/System.AssignedTo", "value": ME},
             {"op": "add", "path": "/relations/-", "value": {"rel": "System.LinkTypes.Hierarchy-Reverse",
                                                             "url": f"{ADO}/_apis/wit/workItems/{i}"}},
         ], patch=True)["id"]
-        open_build(i, f, task, repo, note, f"{i}-{slug}")
-        print(f"{repo}: Task {task} created, workspace {i}-{slug} opened, worker started.")
-    ado(f"wit/workitems/{i}?api-version=7.1", [{"op": "add", "path": "/fields/System.State", "value": "Committed"}], patch=True)
+        if repo in opened:
+            print(f"{repo}: Task {task} '{title}' created, To Do. Build it with factory.py start {task}.")
+            continue
+        opened.add(repo)
+        open_build(i, f, task, repo, note, f"{task}-{slug(title)}", title)
+        print(f"{repo}: Task {task} '{title}' created, workspace {task}-{slug(title)} opened, worker started.")
+    if f["System.State"] in ("New", APPROVED):
+        ado(f"wit/workitems/{i}?api-version=7.1", [{"op": "add", "path": "/fields/System.State", "value": "Committed"}], patch=True)
 
 
-def slug_of(f):
-    return re.sub(r"[^a-z0-9]+", "-", re.sub(r"^\[[^\]]*\]\s*", "", f["System.Title"]).lower()).strip("-")[:40].rstrip("-")
+def slug(title):
+    return re.sub(r"[^a-z0-9]+", "-", re.sub(r"^\[[^\]]*\]\s*", "", title).lower()).strip("-")[:40].rstrip("-")
 
 
-def open_build(pbi, pf, task, repo, note, name):
+def open_build(pbi, pf, task, repo, note, name, slice_title):
     sh("orca", "worktree", "create", "--repo", f"path:{os.path.expanduser('~/Documents/flexii/' + repo)}",
        "--name", name, "--no-parent", "--base-branch", BASE, "--setup", "run",
        "--comment", f"build: AB#{pbi} AB#{task} {pf['System.Title']}",
-       "--agent", "claude", "--prompt", brief(pbi, pf, task, repo, note), "--json",
+       "--agent", "claude", "--prompt", brief(pbi, pf, task, repo, note, slice_title), "--json",
        # Setup runs pnpm install (supply-chain check alone is ~20s); 60s killed it mid-run.
        timeout=600)
 
@@ -238,9 +262,9 @@ def start_task(t, f, repo):
         sys.exit(f"Task {t} is already claimed by workspace(s): {', '.join(taken)}.")
     if prs := claiming_prs(repo, t):
         sys.exit(f"Task {t} is already claimed by PR #{prs[0]['number']} in {repo}.")
-    open_build(pbi, item(pbi), t, repo, note, f"{t}-{slug_of(f)}")
+    open_build(pbi, item(pbi), t, repo, note, f"{t}-{slug(f['System.Title'])}", re.sub(r"^\[[^\]]*\]\s*", "", f["System.Title"]))
     ado(f"wit/workitems/{t}?api-version=7.1", [{"op": "add", "path": "/fields/System.State", "value": "In Progress"}], patch=True)
-    print(f"{repo}: workspace {t}-{slug_of(f)} opened for Task {t}, worker started. Task {t} is In Progress.")
+    print(f"{repo}: workspace {t}-{slug(f['System.Title'])} opened for Task {t}, worker started. Task {t} is In Progress.")
 
 
 if __name__ == "__main__":

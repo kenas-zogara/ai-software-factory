@@ -492,7 +492,7 @@ def render(cards, errors, sources=None):
             if c["col"] == "awaiting-approval" and ab:
                 acts.append(act("Approve", "approve", f"Approve AB#{ab}? It moves to Approved and its spec note lands in the vault.", "go", id=ab))
             if c["col"] == "ready" and c.get("state") == "Approved" and ab:
-                acts.append(act("Start", "start", f"Start AB#{ab}? This creates a Task and a build workspace, and moves it to Committed.", "go", id=ab))
+                acts.append(act("Start", "start", f"Start AB#{ab}? This creates a Task per slice and a build workspace per repo, and moves it to Committed.", "go", id=ab))
             if c["pr"] and c["col"] != "merged":
                 acts += [act("AI review", "review", url=c["url"], kind="ai"), act("e2e review", "review", url=c["url"], kind="e2e")]
             if c.get("wt"):

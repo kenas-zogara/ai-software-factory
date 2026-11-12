@@ -48,7 +48,7 @@ You shape the PBI or Bug with Kenas until it passes the spec gate. Write no code
    | Product | Who the user is, the problem, the user stories. If the parent Feature does not name the user, ask that first | The item: Problem, Why, What, AC |
    | Architecture | Where each story lands: which app or package, BE service and API, DB, infra, mobile. When it touches more than one box, draw it with the `diagram-design` skill, type architecture delta, publish it as a private artifact, and show it before program design starts | `repos:` and `BE dependency:` lines. The diagram link goes in the note's `## Design`, never on the item |
    | Program design | How it is built inside each layer. Read the repo's `docs/architecture.md` and the domain rule doc first. For FE work, always draw the component tree below | The note's `## Design` |
-   | Vertical slices | The PRs, each user-visible and shippable alone, with scope and done-when. Dependencies go first. After them, the slice Kenas can judge against the AC goes first | The note's `## Slices`, in build order |
+   | Vertical slices | The PRs, each user-visible and shippable alone, with scope and done-when. Dependencies go first. After them, the slice Kenas can judge against the AC goes first. Write each as `N. **<title>** <scope>. Done when: …`, under `### <repo>` when there are several repos: `start` makes one Task per line, titled from it | The note's `## Slices`, in build order |
 
    The FE component tree is pseudo-JSX. Mark `+` new, `~` changed, and leave existing nodes unmarked. A trailing comment names the node's data (query or mutation) and who owns its state. `fns:` lists new helpers with their home folder. Draw up to 3 options, each with a one-line trade-off, and mark your pick:
 
@@ -90,7 +90,9 @@ If the fast-forward fails, the vault's `main` has moved. Rebase `spec-<id>` onto
 
 ## `start <id>`: run in your main session
 
-Move the item into the sprint first if asked (ADO MCP, `System.IterationPath`). Then run `factory.py start <id>` and relay its output. It refuses an item with no approval comment, or one with no `repos:` line in its spec note. An open PR or an Orca workspace whose comment carries `AB#<id>` counts as a claim. For each repo in the note it creates a Task under the item, opens a `<id>-<slug>` workspace off `origin/dev`, and starts a worker with the build brief. Then it moves the item to Committed. The worker renames its branch, fills the Task, builds, and ships a draft PR.
+Move the item into the sprint first if asked (ADO MCP, `System.IterationPath`). Then run `factory.py start <id>` and relay its output. It refuses an item with no approval comment, or one with no `repos:` line in its spec note. It creates one Task per slice in the note's `## Slices`, titled `[<repo>] <slice title>`. A repo with no slices gets one Task named after the item. For each repo's first slice it opens a `<task>-<slug>` workspace off `origin/dev` and starts a worker with the build brief. The other Tasks wait in To Do for `start <task>`. A New or Approved item moves to Committed. The worker renames its branch, retitles and fills its Task, builds, and ships a draft PR.
+
+Rerun `start <id>` after a worker adds slices to the note: it creates Tasks only for slices with no Task yet, matched on the title `start` gave them, and opens no workspace.
 
 `start <task> [repo]` builds an existing To Do Task instead: one workspace, no new Task, and the Task moves to In Progress. Its repo comes from the argument, or from the single `repos:` entry in the Task's or its parent's spec note. The parent's state still has to pass the claim guard at `gh pr create`.
 
@@ -118,7 +120,7 @@ A PreToolUse hook. Every block is logged to `~/.claude/factory/gate-log.jsonl`.
   - a test commit at or before the first code commit, or a `No test: <reason>` line
   - `<img>` evidence when UI files changed, or a `No UI change: <reason>` line
   - docs changed, or "not doc-affecting"
-- **Build workspaces (`<id>-<slug>`), the deny list.** No force-push to a shared branch or without a named branch. No Slack posts. No new ADO items, and no edits to a spec's title or AC.
+- **Build workspaces (`<task>-<slug>`), the deny list.** No force-push to a shared branch or without a named branch. No Slack posts. No new ADO items: the refusal tells the worker to hand a split back as new slices in the note. Title, description and AC edits only on the worker's own Task, the id in its workspace name.
 
 If the hook can't reach ADO or GitHub, it warns instead of blocking.
 

@@ -4,8 +4,8 @@
 #                 and no other open PR in this repo claims it
 #   gh pr ready   ready gate: test-first or "No test:", UI evidence, a docs verdict
 #   ADO comment   only factory.py approve posts the approval comment
-#   build worker  deny list for sessions in an Orca build workspace (<id>-<slug>): no force-push to a shared
-#                 branch, no Slack posts, no new ADO items or spec-field edits
+#   build worker  deny list for sessions in an Orca build workspace (<task>-<slug>): no force-push to a shared
+#                 branch, no Slack posts, no new ADO items, no title/description/AC edits but on its own Task
 # Every block, and every "No spec:" pass, is appended to ~/.claude/factory/gate-log.jsonl; merge metrics read it.
 import json, os, re, subprocess, sys, time
 
@@ -21,7 +21,7 @@ cmd = re.sub(r"<<-?\s*(['\"]?)(\w+)\1.*?\n\s*\2\b", "", cmd, flags=re.S)
 START = r"(?:^|[;&|(]\s*|\n\s*)"
 LOG = os.path.expanduser("~/.claude/factory/gate-log.jsonl")
 SHARED = {"dev", "main", "master", "staging", "production"}
-SPEC_FIELDS = ("/fields/System.Title", "/fields/Microsoft.VSTS.Common.AcceptanceCriteria")
+SPEC_FIELDS = ("/fields/System.Title", "/fields/System.Description", "/fields/Microsoft.VSTS.Common.AcceptanceCriteria")
 TEST_FILE = re.compile(r"(\.(test|spec)\.[jt]sx?$|(^|/)test_[^/]+\.py$|Test\.(java|kt)$|_test\.dart$|/__tests__/)")
 UI_FILE = re.compile(r"\.(tsx|jsx|css|scss|dart)$")
 
@@ -139,8 +139,10 @@ def ready_gate():
         deny("ready", f"Ready gate refused PR #{pr['number']}:\n- " + "\n- ".join(fails), pr=pr["url"])
 
 
-def in_build_workspace():
-    return bool(re.search(r"/orca/workspaces/(?!flexii_documents/)[^/]+/\d+-[^/]+", cwd))
+def own_task():
+    """factory start names a build workspace <task>-<slug>, so the path holds the worker's Task id."""
+    m = re.search(r"/orca/workspaces/(?!flexii_documents/)[^/]+/(\d+)-[^/]+", cwd)
+    return int(m.group(1)) if m else None
 
 
 def worker_deny_list():
@@ -155,17 +157,24 @@ def worker_deny_list():
     elif re.match(r"mcp__.*[Ss]lack__slack_(send|schedule|create|update)", tool):
         deny("worker", "Build workers don't post to Slack. Put it in the PR or the report and let Kenas send it.")
     elif tool == "mcp__azure-devops__wit_work_item_write":
+        own = own_task()
         if inp.get("action") in ("create", "add_child"):
-            deny("worker", "Build workers don't create ADO items. The foreman (factory start) creates the Task.")
-        paths = [u.get("path", "") for u in (inp.get("updates") or []) + (inp.get("batchUpdates") or [])]
-        if any(p.startswith(SPEC_FIELDS) for p in paths):
-            deny("worker", "The spec's title and acceptance criteria belong to Kenas. Raise the change in your report.")
+            deny("worker", "Build workers don't create ADO items. To split your slice: add each new slice as a numbered "
+                           "'**title**' line under ## Slices (under '### <repo>' when the note has several repos) in the "
+                           "spec note, ~/Documents/flexii/flexii_documents/specs/<pbi>-*.md, commit it there, and list them "
+                           "under Blocked on me. Kenas reruns factory start <pbi>, which creates a Task per new slice.", ab=own)
+        edits = [(inp.get("id"), u.get("path", "")) for u in inp.get("updates") or []] \
+            + [(u.get("id"), u.get("path", "")) for u in inp.get("batchUpdates") or []]
+        targets = {int(i or 0) for i, p in edits if p.startswith(SPEC_FIELDS)}
+        if targets and (targets != {own} or kind_of(own)["System.WorkItemType"] != "Task"):
+            deny("worker", f"Title, description and AC are yours to edit on your own Task {own} only. The parent "
+                           "PBI's or Bug's belong to Kenas: raise the change in your report.", ab=own)
 
 
 try:
     if tool == "mcp__azure-devops__wit_work_item_comment_write" and APPROVAL.lower() in (inp.get("text") or "").lower():
         deny("approval", "Only factory.py approve posts the spec approval. Ask Kenas to run /factory approve <id>.")
-    if in_build_workspace():
+    if own_task():
         worker_deny_list()
     if re.search(START + r"gh\s+pr\s+create\b", cmd):
         claim_guard()
