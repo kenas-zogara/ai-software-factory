@@ -23,6 +23,7 @@ COLUMNS = [
     ("ready", "Approved", "spec"),
     ("building", "Building", "build"),
     ("ai-review", "AI review", "build"),
+    ("mark-ready", "Mark ready", "build"),
     ("human-review", "Human review", "build"),
     ("merged", "Merged to dev", "build"),
     ("to-review", "To review", "review"),
@@ -32,7 +33,7 @@ COLUMNS = [
 ]
 # Cards here open their Orca workspace via ~/Applications/Factory Orca Link.app (open-orca.sh -> actions.py).
 ORCA_COLUMNS = {"building", "ai-review", "ai-reviewing", "findings-ready"}
-NEEDS_YOU = {"awaiting-approval", "human-review", "findings-ready"}
+NEEDS_YOU = {"awaiting-approval", "mark-ready", "human-review", "findings-ready"}
 FINDINGS = os.path.join(OUT, "findings")
 HIDDEN = os.path.join(OUT, "hidden.json")
 PENDING = os.path.join(OUT, "pending.json")  # actions.py: {action url: {at} while running, {at, error} once it fails}
@@ -122,7 +123,7 @@ def fetch_ado():
     return items
 
 
-PR_FIELDS = """number title url isDraft body state headRefName headRefOid updatedAt mergedAt
+PR_FIELDS = """number title url isDraft body state headRefName headRefOid createdAt updatedAt mergedAt
   repository { name } author { login avatarUrl(size: 32) } labels(first: 20) { nodes { name } }
   commits(last: 1) { nodes { commit { committedDate } } }
   comments(last: 30) { nodes { body createdAt } }
@@ -228,11 +229,14 @@ def build_cards(items, prs, merged, orca, live, reviews=()):
         wt = orca.get(p["headRefName"])
         evaled = any(EVAL_MARK in (c.get("body") or "") and (c.get("createdAt") or "") > last_commit_at(p)
                      for c in p.get("comments") or [])
-        cards.append({"col": "ai-review" if p["headRefName"] in live else "human-review",
+        # A draft out of AI review is built: marking it ready is Kenas's move, so it waits in its own column.
+        col = "ai-review" if p["headRefName"] in live else "mark-ready" if p["isDraft"] else "human-review"
+        cards.append({"col": col,
                       "title": p["title"], "url": p["url"], "repo": p["repo"], "pr": p["number"], "ab": sorted(ids),
                       "flags": (["draft"] if p["isDraft"] else []) + (["eval ✓"] if evaled else [])
                       + [l["name"] for l in p.get("labels") or []], "head": p.get("headRefOid", ""),
-                      "workspace": wt["displayName"] if wt else None, "wt": wt["path"] if wt else None, "age": age(p["updatedAt"])})
+                      "workspace": wt["displayName"] if wt else None, "wt": wt["path"] if wt else None,
+                      "age": age(p["createdAt"] if col == "mark-ready" else p["updatedAt"])})
     for p in merged:
         ids = ab_ids(p.get("body"))
         claim(ids)
@@ -550,7 +554,7 @@ def render(cards, errors, sources=None):
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
 <style>
-/* two stacked swimlanes on one shared 4-column grid, so a spec column sits over its build column */
+/* stacked swimlanes on one shared 5-column grid, so a spec column sits over its build column */
 :root{{--bg:#f7f7f5;--surface:#fff;--fg:#18191b;--muted:#74777d;--line:#e6e6e2;--hover:#cfd0cc;
 --you:#c2521d;--warn:#b42318;--spec:#3b63c4;--build:#1f8a62;
 --sans:"Geist",ui-sans-serif,system-ui,-apple-system,sans-serif;--mono:"Geist Mono",ui-monospace,SFMono-Regular,monospace}}
@@ -578,7 +582,7 @@ header time{{margin-left:auto;font:12px var(--mono);color:var(--muted)}}
 .lanehead h2::before{{content:"";width:8px;height:8px;border-radius:50%;background:var(--build)}}
 .spec .lanehead h2::before{{background:var(--spec)}}
 .lanehead p{{margin:0;color:var(--muted)}}.lanehead i{{flex:1;border-bottom:1px dashed var(--line)}}.lanehead span{{font:12px var(--mono);color:var(--muted)}}
-.cols{{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:16px;overflow-x:auto;align-items:start}}
+.cols{{display:grid;grid-template-columns:repeat(5,minmax(200px,1fr));gap:16px;overflow-x:auto;align-items:start}}
 .col{{display:grid;gap:6px;min-width:0;align-content:start}}
 .cards{{display:grid;gap:6px;align-content:start;max-height:min(62vh,640px);overflow-y:auto;overscroll-behavior:contain;padding-right:2px;scrollbar-width:thin}}
 h3{{margin:0 0 2px;display:flex;align-items:center;gap:8px;padding-bottom:4px;border-bottom:1px solid var(--line);font-size:12px;font-weight:500;color:var(--muted)}}
@@ -656,7 +660,7 @@ def be_watch(cards, items):
     except (OSError, ValueError):
         state = {}
     for c in cards:
-        if c["col"] not in ("building", "ai-review", "human-review") or not c["ab"]:
+        if c["col"] not in ("building", "ai-review", "mark-ready", "human-review") or not c["ab"]:
             continue
         pbi = str(spec_id(c["ab"][0], items))
         refs = be_refs(int(pbi))

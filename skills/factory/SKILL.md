@@ -126,7 +126,9 @@ If the hook can't reach ADO or GitHub, it warns instead of blocking.
 
 ## `sync`
 
-Run `sync.py`, then `open ~/.claude/factory/board.html`. Besides the board, sync makes two kinds of write:
+Run `sync.py`, then `open ~/.claude/factory/board.html`. In the Build lane, my draft PRs out of AI review wait in **Mark ready**, aged from when they opened. Marking them ready is Kenas's move. Human review holds ready PRs.
+
+Besides the board, sync makes two kinds of write:
 - **BE watch.** An in-flight card whose spec's `BE dependency:` line names an unmerged PR, or an item not yet on dev, gets the `needs-be` flag and PR label. When the dependency lands, the label is removed and the worker's terminal is sent "continue" once. State is kept in `be-wait.json`.
 - **Merge metrics.** Each merged PR adds one line to the `## Build log` of its spec note in the vault: gate blocks by kind, eval posts, and review comments from others. Sync commits that file only. launchd (`com.kenas.factory-sync`) runs it every 2 minutes by opening `factory-orca://sync`, because only Factory Orca Link.app may read `~/Documents`. Failures land in `~/.claude/factory/actions.log`.
 
