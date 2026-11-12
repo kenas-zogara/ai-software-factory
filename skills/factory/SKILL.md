@@ -12,7 +12,7 @@ Scripts live next to this file. Run them with `python3 ~/.claude/skills/factory/
 
 ## `grill <id>`: run in your main session
 
-Run `factory.py grill <id>` and relay its output. It refuses an item past `New` (a Task: past `To Do`), and an item that already has a `spec-<id>` workspace. Otherwise it opens a worktree of the flexii_documents vault named `spec-<id>`, and starts Claude in it with `/factory grill-session <id>`.
+Run `factory.py grill <id>` and relay its output. It refuses an item whose spec is already approved, and an item that already has a `spec-<id>` workspace. ADO state doesn't matter: an item created straight into Committed still gets grilled. Otherwise it opens a worktree of the flexii_documents vault named `spec-<id>`, and starts Claude in it with `/factory grill-session <id>`.
 
 ## `grill-session <id>`: runs inside `spec-<id>`
 
@@ -83,14 +83,14 @@ You shape the PBI or Bug with Kenas until it passes the spec gate. Write no code
 
 Run `factory.py approve <id>` and relay its output word for word. The script:
 1. reruns the checks and refuses on any failure
-2. commits the note, fast-forwards the spec branch into the vault's `main`, moves the item to Approved (a Task stays To Do), and posts an ADO comment
+2. commits the note, fast-forwards the spec branch into the vault's `main`, and posts the `Spec approved by Kenas` ADO comment. That comment is the approval every gate reads. A `New` PBI or Bug also moves to Approved; any other item keeps its state
 3. removes the `spec-<id>` workspace
 
 If the fast-forward fails, the vault's `main` has moved. Rebase `spec-<id>` onto it, then rerun approve.
 
 ## `start <id>`: run in your main session
 
-Move the item into the sprint first if asked (ADO MCP, `System.IterationPath`). Then run `factory.py start <id>` and relay its output. It refuses an item that isn't Approved or Committed, or one with no `repos:` line in its spec note. An open PR or an Orca workspace whose comment carries `AB#<id>` counts as a claim. For each repo in the note it creates a Task under the item, opens a `<id>-<slug>` workspace off `origin/dev`, and starts a worker with the build brief. Then it moves the item to Committed. The worker renames its branch, fills the Task, builds, and ships a draft PR.
+Move the item into the sprint first if asked (ADO MCP, `System.IterationPath`). Then run `factory.py start <id>` and relay its output. It refuses an item with no approval comment, or one with no `repos:` line in its spec note. An open PR or an Orca workspace whose comment carries `AB#<id>` counts as a claim. For each repo in the note it creates a Task under the item, opens a `<id>-<slug>` workspace off `origin/dev`, and starts a worker with the build brief. Then it moves the item to Committed. The worker renames its branch, fills the Task, builds, and ships a draft PR.
 
 `start <task> [repo]` builds an existing To Do Task instead: one workspace, no new Task, and the Task moves to In Progress. Its repo comes from the argument, or from the single `repos:` entry in the Task's or its parent's spec note. The parent's state still has to pass the claim guard at `gh pr create`.
 
@@ -111,7 +111,9 @@ The Reviews lane (To review, AI reviewing, Findings ready, Reviewed) is worked o
 
 A PreToolUse hook. Every block is logged to `~/.claude/factory/gate-log.jsonl`.
 
-- **`gh pr create`, the claim guard.** Every `AB#` in the body must be past the spec gate (for a Task, its parent's state), and no other open PR in the repo may claim it.
+- **`gh pr create`, the claim guard.** Every `AB#` in the body needs the approval comment, on the item or, for a Task, on its parent. ADO state doesn't count. No other open PR in the repo may claim it.
+  - A Bug that skips the grill passes with a `No spec: <reason>` line in the PR body. The pass is logged as `no-spec` and lands in the spec note's build log.
+- **The approval comment.** Only `factory.py approve` may post it. An ADO MCP comment containing `Spec approved by Kenas` is refused.
 - **`gh pr ready`, the ready gate.** Three checks. Eval is not one of them: Kenas runs it when he chooses, or with the board's AI review button.
   - a test commit at or before the first code commit, or a `No test: <reason>` line
   - `<img>` evidence when UI files changed, or a `No UI change: <reason>` line

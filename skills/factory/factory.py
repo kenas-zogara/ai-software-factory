@@ -3,13 +3,13 @@
 
   factory.py grill <id>     open the spec workspace for an ADO item and start its grill session
   factory.py check <id>     run the spec-gate check, change nothing
-  factory.py approve <id>   check, then move the item to Approved (a Task stays To Do), comment, land the note, close the workspace
+  factory.py approve <id>   check, then post the approval comment (a New PBI or Bug also moves to Approved), land the note, close the workspace
   factory.py start <id>     one Task and one build workspace per repo in the spec note; item -> Committed
   factory.py start <task> [repo]  one build workspace for a To Do Task; Task -> In Progress
 """
 import glob, html, json, os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(__file__))
-from sync import ADO, ado, gh_json, sh  # noqa: E402
+from sync import ADO, APPROVAL, ado, gh_json, sh, spec_approved  # noqa: E402
 
 VAULT = os.path.expanduser("~/Documents/flexii/flexii_documents")
 APPROVED = "Approved"
@@ -99,15 +99,10 @@ def check(i):
     return f, fails, note
 
 
-def spec_state(f):
-    """The state an item is specced in: a Task is To Do, a PBI or Bug is New."""
-    return "To Do" if f["System.WorkItemType"] == "Task" else "New"
-
-
 def cmd_grill(i):
     f = item(i)
-    if f["System.State"] != spec_state(f):
-        sys.exit(f"{i} is {f['System.State']}, past the spec phase. Nothing to grill.")
+    if spec_approved(i):
+        sys.exit(f"{i}'s spec is already approved. Nothing to grill.")
     if wt := spec_wt(i):
         sys.exit(f"spec-{i} already exists at {wt['path']}. Open it in Orca.")
     if not any(r.get("path") == VAULT for r in json.loads(sh("orca", "repo", "list", "--json"))["result"].get("repos", [])):
@@ -128,8 +123,8 @@ def cmd_check(i):
 def cmd_approve(i):
     f, fails, note = check(i)
     is_task = f["System.WorkItemType"] == "Task"
-    if f["System.State"] != spec_state(f):
-        sys.exit(f"{i} is already {f['System.State']}.")
+    if spec_approved(i):
+        sys.exit(f"{i}'s spec is already approved.")
     if fails:
         sys.exit("Not approved:\n" + "\n".join(fails))
     wt = spec_wt(i)
@@ -139,14 +134,14 @@ def cmd_approve(i):
             sh("git", "-C", wt["path"], "add", "-A")
             sh("git", "-C", wt["path"], "commit", "-m", f"spec({i}): {f['System.Title']}")
         sh("git", "-C", VAULT, "merge", "--ff-only", wt["branch"].removeprefix("refs/heads/"))
-    # A Task has no Approved state: it stays To Do, which is what start builds from.
-    if not is_task:
+    # A Task has no Approved state, and an item already past New keeps its state: the comment is the approval.
+    if not is_task and f["System.State"] == "New":
         ado(f"wit/workitems/{i}?api-version=7.1", [{"op": "add", "path": "/fields/System.State", "value": APPROVED}], patch=True)
     ado(f"wit/workItems/{i}/comments?api-version=7.1-preview.4",
-        {"text": f"Spec approved by Kenas. All spec-gate checks passed. Decision log: flexii_documents/{rel}"})
+        {"text": f"{APPROVAL}. All spec-gate checks passed. Decision log: flexii_documents/{rel}"})
     if wt:
         sh("orca", "worktree", "rm", "--worktree", f"name:spec-{i}")
-    print(f"{i} is {'approved, still To Do' if is_task else 'Approved'}. Note landed at {rel}." + (" spec workspace removed." if wt else ""))
+    print(f"{i}'s spec is approved. Note landed at {rel}." + (" spec workspace removed." if wt else ""))
 
 
 # Stacked build: FACTORY_BASE=origin/<parent PR branch> factory.py start <id>
@@ -186,8 +181,8 @@ def cmd_start(i, repo=None):
     f = item(i)
     if f["System.WorkItemType"] == "Task":
         return start_task(i, f, repo)
-    if f["System.State"] not in (APPROVED, "Committed"):
-        sys.exit(f"{i} is {f['System.State']}. Only an Approved spec or a To Do Task starts a build.")
+    if not spec_approved(i):
+        sys.exit(f"{i}'s spec isn't approved. Run /factory grill {i}, then /factory approve {i}.")
     note = find_note(i)
     repos = note_repos(note) if note else []
     if not repos:

@@ -75,6 +75,16 @@ def ab_ids(text):
     return {int(x) for x in re.findall(r"AB#(\d+)", text or "")}
 
 
+APPROVAL = "Spec approved by Kenas"  # factory.py approve posts it; the gate refuses it from any other writer
+
+
+@functools.cache
+def spec_approved(i):
+    """The spec gate's one record. ADO state is not one: any create call can set it."""
+    comments = ado(f"wit/workItems/{i}/comments?api-version=7.1-preview.4")["comments"]
+    return any(APPROVAL in (c.get("text") or "") for c in comments)
+
+
 def age(t):
     if not t:
         return ""
@@ -240,15 +250,14 @@ def build_cards(items, prs, merged, orca, live, reviews=()):
     for it in items.values():
         if it["type"] == "Task" or it["id"] in claimed:
             continue
-        if it["state"] == "New":
+        col = ADO_COLUMN.get(it["state"], "ready")
+        if it["state"] == "New" or (col == "ready" and unapproved(it["id"])):
             note = spec_note(it["id"])
             spec_ws = any(w.get("displayName") == f"spec-{it['id']}" for w in orca.values())
             if note and has_decisions(note) and not open_questions(note):
                 col = "awaiting-approval"
             else:
                 col = "grilling" if spec_ws or note else "to-grill"
-        else:
-            col = ADO_COLUMN.get(it["state"], "ready")
         cards.append({"col": col, "title": it["title"], "url": f"{ADO}/_workitems/edit/{it['id']}", "repo": None,
                       "pr": None, "ab": [it["id"]], "flags": [it["type"], it["state"]], "workspace": None, "age": "",
                       "state": it["state"]})
@@ -274,6 +283,13 @@ def build_cards(items, prs, merged, orca, live, reviews=()):
                       "findings": findings if fresh else None,
                       "workspace": wt["displayName"] if wt else None, "wt": wt["path"] if wt else None, "age": age(p["updatedAt"])})
     return cards
+
+
+def unapproved(i):
+    try:
+        return not spec_approved(i)
+    except Exception:  # an ADO blip keeps the state's column rather than failing the sync
+        return False
 
 
 def apply_hidden(cards):
@@ -685,9 +701,9 @@ def record_merges(merged, items):
             inline = gh_json("api", f"repos/{repo}/pulls/{p['number']}/comments")
             others = sum(c["user"]["login"] != me for c in inline) + sum(
                 (r.get("author") or {}).get("login") != me for r in convo["reviews"] if r.get("body"))
-            kinds = ", ".join(f"{k} {sum(g['gate'] == k for g in blocks)}" for k in ("claim", "ready", "worker")
+            kinds = ", ".join(f"{k} {sum(g['gate'] == k for g in blocks)}" for k in ("claim", "no-spec", "ready", "worker", "approval")
                               if any(g["gate"] == k for g in blocks)) or "none"
-            line = (f"- {p['mergedAt'][:10]}: {p['url']} merged. Gate blocks: {kinds}. Eval posts: {evals}. "
+            line = (f"- {p['mergedAt'][:10]}: {p['url']} merged. Gate log: {kinds}. Eval posts: {evals}. "
                     f"Review comments from others: {others}.\n")
             text = open(notes[0]).read()
             text = text.rstrip("\n") + ("\n" if "## Build log" in text else "\n## Build log\n") + line

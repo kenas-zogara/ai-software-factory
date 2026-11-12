@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 # Factory gates, PreToolUse. Design: https://claude.ai/artifact/FsrvLPEKuiQBXjLQMiNqFE
-#   gh pr create  claim guard: every AB# in the body is past the spec gate, and no other open PR in this repo claims it
+#   gh pr create  claim guard: every AB# in the body has an approved spec (or, for a Bug, a "No spec:" line),
+#                 and no other open PR in this repo claims it
 #   gh pr ready   ready gate: test-first or "No test:", UI evidence, a docs verdict
+#   ADO comment   only factory.py approve posts the approval comment
 #   build worker  deny list for sessions in an Orca build workspace (<id>-<slug>): no force-push to a shared
 #                 branch, no Slack posts, no new ADO items or spec-field edits
-# Every block is appended to ~/.claude/factory/gate-log.jsonl; merge metrics read it.
+# Every block, and every "No spec:" pass, is appended to ~/.claude/factory/gate-log.jsonl; merge metrics read it.
 import json, os, re, subprocess, sys, time
 
 sys.path.insert(0, os.path.expanduser("~/.claude/skills/factory"))
+from sync import APPROVAL, ado, spec_approved  # noqa: E402
+
 data = json.load(sys.stdin)
 tool, inp = data.get("tool_name", ""), data.get("tool_input") or {}
 cwd = data.get("cwd") or os.getcwd()
@@ -16,7 +20,6 @@ cmd = inp.get("command", "") if tool == "Bash" else ""
 cmd = re.sub(r"<<-?\s*(['\"]?)(\w+)\1.*?\n\s*\2\b", "", cmd, flags=re.S)
 START = r"(?:^|[;&|(]\s*|\n\s*)"
 LOG = os.path.expanduser("~/.claude/factory/gate-log.jsonl")
-PRE_SPEC = {"New", "Removed"}
 SHARED = {"dev", "main", "master", "staging", "production"}
 SPEC_FIELDS = ("/fields/System.Title", "/fields/Microsoft.VSTS.Common.AcceptanceCriteria")
 TEST_FILE = re.compile(r"(\.(test|spec)\.[jt]sx?$|(^|/)test_[^/]+\.py$|Test\.(java|kt)$|_test\.dart$|/__tests__/)")
@@ -34,13 +37,17 @@ def gh(*a):
     return json.loads(r.stdout or "null")
 
 
-def deny(gate, reason, **extra):
+def log(gate, reason, **extra):
     try:
         os.makedirs(os.path.dirname(LOG), exist_ok=True)
         with open(LOG, "a") as f:
             f.write(json.dumps({"at": time.time(), "gate": gate, "cwd": cwd, "reason": reason, **extra}) + "\n")
     except OSError:
         pass
+
+
+def deny(gate, reason, **extra):
+    log(gate, reason, **extra)
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                              "permissionDecisionReason": reason}}))
     sys.exit(0)
@@ -62,21 +69,31 @@ def body_of_create():
     return m.group(3) if m else ""
 
 
+def kind_of(i):
+    return ado(f"wit/workitems/{i}?fields=System.WorkItemType,System.Parent&api-version=7.1")["fields"]
+
+
 def claim_guard():
-    from sync import ado
-    ids = {int(x) for x in re.findall(r"AB#(\d+)", body_of_create())}
+    body = body_of_create()
+    ids = {int(x) for x in re.findall(r"AB#(\d+)", body)}
     if not ids:
         return
+    no_spec = re.search(r"^\s*No spec:\s*(\S.*)$", body, re.M | re.I)
     repo = gh("repo", "view", "--json", "nameWithOwner")["nameWithOwner"]
     branch = run("git", "branch", "--show-current").stdout.strip()
     for i in sorted(ids):
-        f = ado(f"wit/workitems/{i}?fields=System.State,System.WorkItemType,System.Parent&api-version=7.1")["fields"]
-        spec = f
-        if f["System.WorkItemType"] == "Task" and f.get("System.Parent"):
-            spec = ado(f"wit/workitems/{f['System.Parent']}?fields=System.State&api-version=7.1")["fields"]
-        if spec["System.State"] in PRE_SPEC:
-            deny("claim", f"AB#{i}'s spec is {spec['System.State']}, so it hasn't passed the spec gate. "
-                          f"Run /factory grill and /factory approve on it first, or drop AB#{i} from the body.", ab=i)
+        f = kind_of(i)
+        chain, kind = [i], f["System.WorkItemType"]
+        if kind == "Task" and f.get("System.Parent"):  # a Task is specced on its own or through its parent
+            chain.append(f["System.Parent"])
+            kind = kind_of(f["System.Parent"])["System.WorkItemType"]
+        if not any(spec_approved(x) for x in chain):
+            if no_spec and kind == "Bug":
+                log("no-spec", no_spec.group(1).strip(), ab=i)
+            else:
+                deny("claim", f"AB#{i} has no approved spec (ADO state doesn't count). Run /factory grill {chain[-1]} "
+                              f"and /factory approve {chain[-1]} first, or drop AB#{i} from the body. For a Bug "
+                              "(a hotfix too) that skips the grill, add a 'No spec: <reason>' line to the body.", ab=i)
         others = [p for p in gh("pr", "list", "-R", repo, "--state", "open", "--search", f"AB#{i}",
                                 "--json", "number,headRefName,body")
                   if p["headRefName"] != branch and re.search(rf"AB#{i}\b", p["body"] or "")]
@@ -146,6 +163,8 @@ def worker_deny_list():
 
 
 try:
+    if tool == "mcp__azure-devops__wit_work_item_comment_write" and APPROVAL.lower() in (inp.get("text") or "").lower():
+        deny("approval", "Only factory.py approve posts the spec approval. Ask Kenas to run /factory approve <id>.")
     if in_build_workspace():
         worker_deny_list()
     if re.search(START + r"gh\s+pr\s+create\b", cmd):
