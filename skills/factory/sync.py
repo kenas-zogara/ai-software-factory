@@ -123,7 +123,7 @@ def fetch_ado():
     return items
 
 
-PR_FIELDS = """number title url isDraft body state headRefName headRefOid createdAt updatedAt mergedAt
+PR_FIELDS = """number title url isDraft body state baseRefName headRefName headRefOid createdAt updatedAt mergedAt mergeable mergeStateStatus
   repository { name } author { login avatarUrl(size: 32) } labels(first: 20) { nodes { name } }
   commits(last: 1) { nodes { commit { committedDate } } }
   comments(last: 30) { nodes { body createdAt } }
@@ -231,9 +231,13 @@ def build_cards(items, prs, merged, orca, live, reviews=()):
                      for c in p.get("comments") or [])
         # A draft out of AI review is built: marking it ready is Kenas's move, so it waits in its own column.
         col = "ai-review" if p["headRefName"] in live else "mark-ready" if p["isDraft"] else "human-review"
-        cards.append({"col": col,
+        # GitHub answers UNKNOWN until it has computed mergeability; the next sync has it.
+        conflict = p.get("mergeable") == "CONFLICTING" or p.get("mergeStateStatus") == "DIRTY"
+        stale = [f"Conflicts with {p['baseRefName']}"] if conflict else \
+            [f"Behind {p['baseRefName']}"] if p.get("mergeStateStatus") == "BEHIND" else []
+        cards.append({"col": col, "you": conflict,
                       "title": p["title"], "url": p["url"], "repo": p["repo"], "pr": p["number"], "ab": sorted(ids),
-                      "flags": (["draft"] if p["isDraft"] else []) + (["eval ✓"] if evaled else [])
+                      "flags": stale + (["draft"] if p["isDraft"] else []) + (["eval ✓"] if evaled else [])
                       + [l["name"] for l in p.get("labels") or []], "head": p.get("headRefOid", ""),
                       "workspace": wt["displayName"] if wt else None, "wt": wt["path"] if wt else None,
                       "age": age(p["createdAt"] if col == "mark-ready" else p["updatedAt"])})
@@ -484,7 +488,7 @@ def render(cards, errors, sources=None):
             meta.append(f'<span>#{c["pr"]}</span>')
         meta += [f'<span>AB#{i}</span>' for i in c["ab"]]
         meta += [f'<span>{html.escape(f.removeprefix("area:"))}</span>' for f in c["flags"] if f.startswith("area:")]
-        meta += [f'<span class="flag{" warn" if f.startswith(("needs", "idle", "blocked")) else ""}">'
+        meta += [f'<span class="flag{" warn" if f.startswith(("needs", "idle", "blocked", "Conflicts", "Behind")) else ""}">'
                  f'{html.escape(f)}</span>' for f in c["flags"] if not f.startswith("area:")]
         lane = LANE_OF[c["col"]]
         ab = c["ab"][0] if c["ab"] else None
@@ -518,7 +522,7 @@ def render(cards, errors, sources=None):
             hit = f'<a class="hit" href="{html.escape(c["url"])}" target="_blank" rel="noopener" aria-label="{html.escape(c["title"])}"></a>'
         av = f'<img class="av" src="{html.escape(c["avatar"])}" alt="" width="18" height="18">' if c.get("avatar") else ""
         actions = f'<div class="acts">{"".join(acts)}</div>' if acts else ""
-        return (f'<div class="card{" hidden" if c.get("hidden") else ""}" data-repo="{html.escape(c["repo"] or "")}">{hit}<div class="t">{av}{html.escape(c["title"])}</div>'
+        return (f'<div class="card{" hidden" if c.get("hidden") else ""}"{" data-you=1" if c.get("you") else ""} data-repo="{html.escape(c["repo"] or "")}">{hit}<div class="t">{av}{html.escape(c["title"])}</div>'
                 f'<div class="meta">{"".join(meta)}</div>{actions}</div>')
 
     lanes, waiting = [], 0
@@ -532,8 +536,7 @@ def render(cards, errors, sources=None):
             total += len(shown)
             hidden_n += len(cs) - len(shown)
             you = key in NEEDS_YOU
-            if you:
-                waiting += len(shown)
+            waiting += len(shown) if you else sum(bool(c.get("you")) for c in shown)
             tag = " · you" if you and shown else ""
             cols.append(f'<section class="col" data-k="col-{key}" data-you="{int(you and bool(shown))}"><h3 data-k="h-{key}"><span>{label}{tag}</span>'
                         f'<b>{len(shown)}</b></h3><div class="cards" data-k="c-{key}">{"".join(map(card, cs)) or "<p class=empty>Empty</p>"}</div></section>')
@@ -590,7 +593,7 @@ h3 b{{margin-left:auto;font:500 11px var(--mono)}}
 [data-you="1"] h3{{color:var(--you);border-bottom-color:var(--you)}}
 .card{{position:relative;display:grid;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;color:inherit;text-decoration:none;transition:border-color .12s}}
 .hit{{position:absolute;inset:0;border-radius:6px}}.card:hover{{border-color:var(--hover)}}.card:has(.hit:focus-visible){{outline:2px solid var(--spec);outline-offset:2px}}.hit:focus{{outline:none}}
-[data-you="1"] .card{{box-shadow:inset 2px 0 0 var(--you)}}
+[data-you="1"] .card,.card[data-you="1"]{{box-shadow:inset 2px 0 0 var(--you)}}
 .t{{font-weight:500;min-width:0;overflow-wrap:anywhere;text-wrap:pretty}}.t:has(.av){{display:flex;align-items:flex-start;gap:8px}}.av{{flex:none;width:18px;height:18px;margin-top:1px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 1px var(--line)}}
 .meta{{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font:11px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}}.repo{{color:var(--fg)}}
 .age{{margin-left:auto}}

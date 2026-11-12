@@ -126,7 +126,7 @@ If the hook can't reach ADO or GitHub, it warns instead of blocking.
 
 ## `sync`
 
-Run `sync.py`, then `open ~/.claude/factory/board.html`. In the Build lane, my draft PRs out of AI review wait in **Mark ready**, aged from when they opened. Marking them ready is Kenas's move. Human review holds ready PRs.
+Run `sync.py`, then `open ~/.claude/factory/board.html`. In the Build lane, my draft PRs out of AI review wait in **Mark ready**, aged from when they opened. Marking them ready is Kenas's move. Human review holds ready PRs. Any open PR of mine, draft or ready, is flagged "Conflicts with <base>" or "Behind <base>". A conflict counts as waiting on Kenas in whatever column it sits. GitHub answers `UNKNOWN` until it has computed mergeability, so a flag can take one more sync to show.
 
 Besides the board, sync makes two kinds of write:
 - **BE watch.** An in-flight card whose spec's `BE dependency:` line names an unmerged PR, or an item not yet on dev, gets the `needs-be` flag and PR label. When the dependency lands, the label is removed and the worker's terminal is sent "continue" once. State is kept in `be-wait.json`.
